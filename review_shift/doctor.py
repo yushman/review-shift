@@ -17,9 +17,9 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from src import config as config_module
-from src import gitutil, launchd_ops, review
-from src.config.schema import DEFAULTS
+from review_shift import config as config_module
+from review_shift import gitutil, launchd_ops, review
+from review_shift.config.schema import DEFAULTS
 
 MIN_CLAUDE_VERSION = (2, 1, 0)
 RUNS_PATHSPEC = ".review-shift/runs"

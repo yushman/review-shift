@@ -6,8 +6,8 @@ from pathlib import Path
 from hypothesis import given
 from hypothesis import strategies as st
 
-from src.patch import REDACTED, resolve
-from src.redact import DEFAULT_EXCLUDE_PATTERNS, merge_exclude_paths, redact_diff
+from review_shift.patch import REDACTED, resolve
+from review_shift.redact import DEFAULT_EXCLUDE_PATTERNS, merge_exclude_paths, redact_diff
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 

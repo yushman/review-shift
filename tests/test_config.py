@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from src import config
+from review_shift import config
 
 
 def _write(path: Path, text: str) -> None:
@@ -164,7 +164,7 @@ def test_current_version_is_not_reported_as_migrated(tmp_path: Path):
 
 
 def test_migrate_unversioned_to_v1():
-    from src.config import migrations
+    from review_shift.config import migrations
 
     migrated, was_migrated = migrations.migrate({"depth": "medium"})
     assert migrated["version"] == 1
@@ -172,7 +172,7 @@ def test_migrate_unversioned_to_v1():
 
 
 def test_migrate_current_version_is_noop():
-    from src.config import migrations
+    from review_shift.config import migrations
 
     migrated, was_migrated = migrations.migrate({"version": 1, "depth": "medium"})
     assert was_migrated is False
@@ -180,7 +180,7 @@ def test_migrate_current_version_is_noop():
 
 
 def test_migrate_unrecognized_version_raises():
-    from src.config import migrations
+    from review_shift.config import migrations
 
     with pytest.raises(migrations.UnrecognizedConfigVersion):
         migrations.migrate({"version": 42})

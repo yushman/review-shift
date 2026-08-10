@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from src import discover
+from review_shift import discover
 
 
 def _git(repo: Path, *args: str) -> None:

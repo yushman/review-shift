@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 from unittest.mock import patch as mock_patch
 
-from src import cli
+from review_shift import cli
 
 
 def _fake_claude_events(structured_output: dict) -> list[dict]:
@@ -53,7 +53,7 @@ def test_secret_in_diff_never_reaches_the_model_prompt(branched_repo: Path, tmp_
     argv = ["run", "--branch", "feature/x", "--base", "main", "--depth", "medium",
             "--repo", str(branched_repo), "--out-dir", str(out_dir)]
 
-    with mock_patch("src.review._invoke_with_timeout", side_effect=fake_invoke):
+    with mock_patch("review_shift.review._invoke_with_timeout", side_effect=fake_invoke):
         exit_code = cli.main(argv)
 
     assert exit_code == 0

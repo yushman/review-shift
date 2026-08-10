@@ -35,14 +35,21 @@ Repository = "https://github.com/yushman/review-shift"
 Issues = "https://github.com/yushman/review-shift/issues"
 
 [project.scripts]
-review-shift = "src.cli:main"
+review-shift = "review_shift.cli:main"
 
 [tool.setuptools]
-packages = ["src", "src.prompts", "src.config"]
+packages = ["review_shift", "review_shift.prompts", "review_shift.config"]
 package-dir = { "" = "." }
 
 [tool.setuptools.package-data]
-"src.prompts" = ["*.md"]
+"review_shift" = [
+    "templates/*.plist",
+    "templates/*.yml",
+    "schemas/*.json",
+    "plugin/.claude-plugin/*.json",
+    "plugin/skills/review-shift/*.md",
+]
+"review_shift.prompts" = ["*.md"]
 
 [dependency-groups]
 dev = [
@@ -64,7 +71,7 @@ select = ["E", "F", "I", "UP", "B"]
 [tool.mypy]
 python_version = "3.11"
 strict = true
-files = ["src"]
+files = ["review_shift"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

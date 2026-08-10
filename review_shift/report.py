@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from src.patch import LocalizedFinding
+from review_shift.patch import LocalizedFinding
 
 RunMeta = dict[str, Any]
 

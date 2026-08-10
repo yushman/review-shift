@@ -13,9 +13,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from src import config as config_module
-from src import gitutil, index_store, lock, patch, redact, report, review
-from src.exitcodes import (
+from review_shift import config as config_module
+from review_shift import gitutil, index_store, lock, patch, redact, report, review
+from review_shift.exitcodes import (
     EXIT_AUTH_OR_QUOTA,
     EXIT_FINDINGS,
     EXIT_INTERNAL_ERROR,

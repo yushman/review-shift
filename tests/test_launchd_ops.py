@@ -11,7 +11,7 @@ import plistlib
 import subprocess
 from pathlib import Path
 
-from src import launchd_ops
+from review_shift import launchd_ops
 
 
 def _ctx(**overrides: object) -> launchd_ops.RenderContext:

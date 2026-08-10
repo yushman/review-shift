@@ -19,8 +19,8 @@ import jsonschema
 
 Finding = dict[str, Any]
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-SCHEMA_PATH = REPO_ROOT / "schemas" / "findings.v1.schema.json"
+PACKAGE_DIR = Path(__file__).resolve().parent
+SCHEMA_PATH = PACKAGE_DIR / "schemas" / "findings.v1.schema.json"
 PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 
 

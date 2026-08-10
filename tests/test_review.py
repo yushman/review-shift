@@ -7,7 +7,7 @@ from unittest.mock import patch
 import jsonschema
 import pytest
 
-from src import review
+from review_shift import review
 
 
 def _result_event(structured_output=None, stop_reason="tool_use", subtype="success", result=None,
@@ -85,7 +85,7 @@ def test_validate_findings_rejects_end_line_before_line():
 
 def test_run_review_succeeds_first_attempt(tmp_path: Path):
     events = [{"type": "system"}, _result_event(structured_output=VALID_PAYLOAD)]
-    with patch("src.review.subprocess.run", return_value=_completed(events)):
+    with patch("review_shift.review.subprocess.run", return_value=_completed(events)):
         result = review.run_review(
             branch="feature/x", base="main", depth="medium", repo_root=tmp_path,
             diff_text="diff --git a/src/foo.py b/src/foo.py\n", head_sha="abc123",
@@ -98,7 +98,9 @@ def test_run_review_succeeds_first_attempt(tmp_path: Path):
 def test_run_review_retries_on_invalid_then_succeeds(tmp_path: Path):
     bad = [{"type": "system"}, _result_event(result="not json")]
     good = [{"type": "system"}, _result_event(structured_output=VALID_PAYLOAD)]
-    with patch("src.review.subprocess.run", side_effect=[_completed(bad), _completed(good)]):
+    with patch(
+        "review_shift.review.subprocess.run", side_effect=[_completed(bad), _completed(good)]
+    ):
         result = review.run_review(
             branch="feature/x", base="main", depth="medium", repo_root=tmp_path,
             diff_text="some diff", head_sha="abc123", repo_files={"src/foo.py"},
@@ -108,7 +110,7 @@ def test_run_review_retries_on_invalid_then_succeeds(tmp_path: Path):
 
 def test_run_review_refusal_does_not_retry(tmp_path: Path):
     events = [{"type": "system"}, _result_event(stop_reason="refusal", subtype="refusal")]
-    with patch("src.review.subprocess.run", return_value=_completed(events)) as mock_run:
+    with patch("review_shift.review.subprocess.run", return_value=_completed(events)) as mock_run:
         with pytest.raises(review.ReviewRefused):
             review.run_review(
                 branch="feature/x", base="main", depth="medium", repo_root=tmp_path,
@@ -119,7 +121,7 @@ def test_run_review_refusal_does_not_retry(tmp_path: Path):
 
 def test_run_review_gives_up_after_three_invalid_attempts(tmp_path: Path):
     bad = [{"type": "system"}, _result_event(result="not json")]
-    with patch("src.review.subprocess.run", return_value=_completed(bad)) as mock_run:
+    with patch("review_shift.review.subprocess.run", return_value=_completed(bad)) as mock_run:
         with pytest.raises(review.ReviewInvalid) as exc_info:
             review.run_review(
                 branch="feature/x", base="main", depth="medium", repo_root=tmp_path,
@@ -169,18 +171,18 @@ def _preflight_quota_failure():
 
 
 def test_check_auth_succeeds_on_clean_response():
-    with patch("src.review._run_preflight", return_value=_preflight_ok()):
+    with patch("review_shift.review._run_preflight", return_value=_preflight_ok()):
         review.check_auth()  # does not raise
 
 
 def test_check_auth_raises_auth_error_on_login_failure():
-    with patch("src.review._run_preflight", return_value=_preflight_auth_failure()):
+    with patch("review_shift.review._run_preflight", return_value=_preflight_auth_failure()):
         with pytest.raises(review.AuthError):
             review.check_auth()
 
 
 def test_check_auth_raises_quota_error_on_rate_limit():
-    with patch("src.review._run_preflight", return_value=_preflight_quota_failure()):
+    with patch("review_shift.review._run_preflight", return_value=_preflight_quota_failure()):
         with pytest.raises(review.QuotaError):
             review.check_auth()
 
@@ -191,7 +193,7 @@ def test_run_review_succeeds_immediately_on_empty_findings_for_nonempty_diff(tmp
     not trigger a retry (ADR-011's original retry line predates that prompt contract)."""
     empty_payload = {"schema_version": 1, "findings": []}
     empty = [{"type": "system"}, _result_event(structured_output=empty_payload)]
-    with patch("src.review.subprocess.run", return_value=_completed(empty)) as mock_run:
+    with patch("review_shift.review.subprocess.run", return_value=_completed(empty)) as mock_run:
         result = review.run_review(
             branch="feature/x", base="main", depth="medium", repo_root=tmp_path,
             diff_text="a real non-empty diff", head_sha="abc123", repo_files={"src/foo.py"},

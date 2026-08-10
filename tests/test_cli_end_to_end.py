@@ -12,7 +12,7 @@ import subprocess
 from pathlib import Path
 from unittest.mock import patch as mock_patch
 
-from src import cli
+from review_shift import cli
 
 
 def _run_dirs(out_dir: Path) -> list[Path]:
@@ -52,7 +52,7 @@ def test_run_writes_full_run_directory(branched_repo: Path, tmp_path: Path):
             "--repo", str(branched_repo), "--out-dir", str(out_dir)]
 
     mock_events = (_fake_claude_events(structured_output), False)
-    with mock_patch("src.review._invoke_with_timeout", return_value=mock_events):
+    with mock_patch("review_shift.review._invoke_with_timeout", return_value=mock_events):
         exit_code = cli.main(argv)
 
     assert exit_code == 1  # a high-severity finding is present
@@ -102,6 +102,6 @@ def test_run_with_no_findings_exits_zero(branched_repo: Path, tmp_path: Path):
     argv = ["run", "--branch", "feature/x", "--base", "main", "--depth", "medium",
             "--repo", str(branched_repo), "--out-dir", str(out_dir)]
     mock_events = (_fake_claude_events(structured_output), False)
-    with mock_patch("src.review._invoke_with_timeout", return_value=mock_events):
+    with mock_patch("review_shift.review._invoke_with_timeout", return_value=mock_events):
         exit_code = cli.main(argv)
     assert exit_code == 0

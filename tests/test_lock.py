@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from src import lock
+from review_shift import lock
 
 
 def test_acquire_creates_lock_file_and_writes_holder_info(tmp_path: Path):
@@ -55,7 +55,7 @@ def test_lock_released_when_holder_process_dies(tmp_path: Path):
          "import sys\n"
          "from pathlib import Path\n"
          "sys.path.insert(0, sys.argv[1])\n"
-         "from src import lock\n"
+         "from review_shift import lock\n"
          "with lock.acquire(Path(sys.argv[2])):\n"
          "    pass\n",
          str(Path(__file__).resolve().parent.parent), str(tmp_path)],
@@ -133,8 +133,8 @@ def test_two_concurrent_cli_invocations_one_wins(repo_with_branch: Path, tmp_pat
 
     def _spawn(out_dir: Path) -> subprocess.Popen:
         return subprocess.Popen(
-            [sys.executable, "-m", "src.cli", "run", "--branch", "feature/x", "--base", "main",
-             "--repo", str(repo_with_branch), "--out-dir", str(out_dir)],
+            [sys.executable, "-m", "review_shift.cli", "run", "--branch", "feature/x",
+             "--base", "main", "--repo", str(repo_with_branch), "--out-dir", str(out_dir)],
             cwd=str(_repo_root()), env=env,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
         )

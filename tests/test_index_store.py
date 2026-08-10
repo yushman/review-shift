@@ -9,7 +9,7 @@ import json
 import os
 from pathlib import Path
 
-from src import index_store
+from review_shift import index_store
 
 BASE_KEY_ARGS = dict(
     head_sha="a" * 40, base_sha="b" * 40, depth="medium",

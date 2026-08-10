@@ -16,8 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-TEMPLATE_PATH = REPO_ROOT / "templates" / "launchd.plist"
+TEMPLATE_PATH = Path(__file__).resolve().parent / "templates" / "launchd.plist"
 
 PLIST_LABEL = "com.user.review-shift"
 PLIST_PATH = Path.home() / "Library" / "LaunchAgents" / f"{PLIST_LABEL}.plist"

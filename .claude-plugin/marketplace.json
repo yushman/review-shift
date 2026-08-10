@@ -7,7 +7,7 @@
   "plugins": [
     {
       "name": "review-shift",
-      "source": "./plugin",
+      "source": "./review_shift/plugin",
       "description": "Autonomous code review of one local git branch, reusing review-shift's own prompts, lock and CLI rather than reimplementing review logic in-session."
     }
   ]

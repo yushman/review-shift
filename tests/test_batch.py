@@ -17,7 +17,7 @@ from unittest.mock import patch as mock_patch
 
 import pytest
 
-from src import cli
+from review_shift import cli
 
 
 def _git(repo: Path, *args: str) -> None:
@@ -100,7 +100,9 @@ def _side_effect_fail_branch(fail_branch: str):
 def test_middle_branch_failing_does_not_stop_the_batch(three_branch_repo: Path, tmp_path: Path):
     out_dir = tmp_path / "runs"
     argv = ["run", "--base", "main", "--repo", str(three_branch_repo), "--out-dir", str(out_dir)]
-    with mock_patch("src.review._invoke_with_timeout", side_effect=_side_effect_fail_branch("b")):
+    with mock_patch(
+        "review_shift.review._invoke_with_timeout", side_effect=_side_effect_fail_branch("b")
+    ):
         exit_code = cli.main(argv)
 
     # a and c succeeded (low-severity only) -> no critical among successes -> exit 0
@@ -128,8 +130,8 @@ def test_middle_branch_patch_resolve_failure_does_not_stop_the_batch(
     step itself is already guarded (see test_middle_branch_failing_does_not_stop_the_batch);
     this covers the downstream localization step (`patch.resolve`, which can raise
     `gitutil.GitError` via `gitutil.show_file`) which was previously left unguarded."""
-    from src import gitutil
-    from src.patch import resolve as real_resolve
+    from review_shift import gitutil
+    from review_shift.patch import resolve as real_resolve
 
     fail_head = gitutil.rev_parse(three_branch_repo, "feature/b")
 
@@ -140,8 +142,10 @@ def test_middle_branch_patch_resolve_failure_does_not_stop_the_batch(
 
     out_dir = tmp_path / "runs"
     argv = ["run", "--base", "main", "--repo", str(three_branch_repo), "--out-dir", str(out_dir)]
-    with mock_patch("src.review._invoke_with_timeout", return_value=(_low_finding_events(), False)):
-        with mock_patch("src.batch.patch.resolve", side_effect=_resolve_side_effect):
+    with mock_patch(
+        "review_shift.review._invoke_with_timeout", return_value=(_low_finding_events(), False)
+    ):
+        with mock_patch("review_shift.batch.patch.resolve", side_effect=_resolve_side_effect):
             exit_code = cli.main(argv)
 
     # a and c succeeded (low-severity only) -> no critical among successes -> exit 0
@@ -159,7 +163,9 @@ def test_middle_branch_patch_resolve_failure_does_not_stop_the_batch(
 def test_all_branches_failing_exits_2(three_branch_repo: Path, tmp_path: Path):
     out_dir = tmp_path / "runs"
     argv = ["run", "--base", "main", "--repo", str(three_branch_repo), "--out-dir", str(out_dir)]
-    with mock_patch("src.review._invoke_with_timeout", return_value=(_bad_json_events(), False)):
+    with mock_patch(
+        "review_shift.review._invoke_with_timeout", return_value=(_bad_json_events(), False)
+    ):
         exit_code = cli.main(argv)
     assert exit_code == 2
 
@@ -175,14 +181,14 @@ def test_one_critical_among_successes_exits_1_unless_exit_zero_flag(
 
     out_dir = tmp_path / "runs"
     argv = ["run", "--base", "main", "--repo", str(three_branch_repo), "--out-dir", str(out_dir)]
-    with mock_patch("src.review._invoke_with_timeout", side_effect=side_effect):
+    with mock_patch("review_shift.review._invoke_with_timeout", side_effect=side_effect):
         exit_code = cli.main(argv)
     assert exit_code == 1
 
     out_dir2 = tmp_path / "runs2"
     argv2 = ["run", "--base", "main", "--repo", str(three_branch_repo), "--out-dir", str(out_dir2),
              "--exit-zero-on-findings"]
-    with mock_patch("src.review._invoke_with_timeout", side_effect=side_effect):
+    with mock_patch("review_shift.review._invoke_with_timeout", side_effect=side_effect):
         exit_code2 = cli.main(argv2)
     assert exit_code2 == 0
 
@@ -212,7 +218,7 @@ def test_default_threshold_reproduces_old_behavior(three_branch_repo: Path, tmp_
     out_dir = tmp_path / "runs"
     argv = ["run", "--branch", "feature/a", "--base", "main", "--repo", str(three_branch_repo),
             "--out-dir", str(out_dir)]
-    with mock_patch("src.review._invoke_with_timeout",
+    with mock_patch("review_shift.review._invoke_with_timeout",
                      return_value=(_finding_events("high", "aaa", "AAA"), False)):
         exit_code = cli.main(argv)
     assert exit_code == 1
@@ -234,7 +240,7 @@ def test_lowered_threshold_includes_medium_finding_and_flips_exit_code(
     out_dir = tmp_path / "runs"
     argv = ["run", "--branch", "feature/a", "--base", "main", "--repo", str(three_branch_repo),
             "--out-dir", str(out_dir)]
-    with mock_patch("src.review._invoke_with_timeout",
+    with mock_patch("review_shift.review._invoke_with_timeout",
                      return_value=(_finding_events("medium", "aaa", "AAA"), False)):
         exit_code = cli.main(argv)
     assert exit_code == 1
@@ -252,7 +258,7 @@ def test_raised_threshold_excludes_high_finding_and_exit_stays_zero(
     out_dir = tmp_path / "runs"
     argv = ["run", "--branch", "feature/a", "--base", "main", "--repo", str(three_branch_repo),
             "--out-dir", str(out_dir)]
-    with mock_patch("src.review._invoke_with_timeout",
+    with mock_patch("review_shift.review._invoke_with_timeout",
                      return_value=(_finding_events("high", "aaa", "AAA"), False)):
         exit_code = cli.main(argv)
     assert exit_code == 0
@@ -269,7 +275,9 @@ def test_redacted_finding_excluded_from_auto_fixed_patch_regardless_of_threshold
     argv = ["run", "--branch", "feature/a", "--base", "main", "--repo", str(three_branch_repo),
             "--out-dir", str(out_dir)]
     redacted_events = _finding_events("critical", 'X = "<<REDACTED:token>>"', 'X = "y"')
-    with mock_patch("src.review._invoke_with_timeout", return_value=(redacted_events, False)):
+    with mock_patch(
+        "review_shift.review._invoke_with_timeout", return_value=(redacted_events, False)
+    ):
         cli.main(argv)
 
     run_dir = next(p for p in out_dir.iterdir() if p.is_dir() and not p.is_symlink())
@@ -281,7 +289,9 @@ def test_rerun_of_unchanged_branch_is_a_cache_hit(three_branch_repo: Path, tmp_p
     argv = ["run", "--branch", "feature/a", "--base", "main", "--repo", str(three_branch_repo),
             "--out-dir", str(out_dir)]
 
-    with mock_patch("src.review._invoke_with_timeout", return_value=(_low_finding_events(), False)):
+    with mock_patch(
+        "review_shift.review._invoke_with_timeout", return_value=(_low_finding_events(), False)
+    ):
         first_exit = cli.main(argv)
     assert first_exit == 0
     run_dirs_after_first = [p for p in out_dir.iterdir() if p.is_dir() and not p.is_symlink()]
@@ -289,7 +299,7 @@ def test_rerun_of_unchanged_branch_is_a_cache_hit(three_branch_repo: Path, tmp_p
 
     # second invocation: nothing about the branch/base/config/prompt changed -> cache hit, no
     # new run directory, and the mocked review call must not even be invoked.
-    with mock_patch("src.review._invoke_with_timeout") as mock_invoke:
+    with mock_patch("review_shift.review._invoke_with_timeout") as mock_invoke:
         second_exit = cli.main(argv)
     assert second_exit == 0
     mock_invoke.assert_not_called()
@@ -305,7 +315,9 @@ def test_force_bypasses_the_cache(three_branch_repo: Path, tmp_path: Path):
     out_dir = tmp_path / "runs"
     argv = ["run", "--branch", "feature/a", "--base", "main", "--repo", str(three_branch_repo),
             "--out-dir", str(out_dir)]
-    with mock_patch("src.review._invoke_with_timeout", return_value=(_low_finding_events(), False)):
+    with mock_patch(
+        "review_shift.review._invoke_with_timeout", return_value=(_low_finding_events(), False)
+    ):
         cli.main(argv)
 
     # run_id has second-granularity (ADR-007's fixed format); wait past the second boundary
@@ -313,7 +325,7 @@ def test_force_bypasses_the_cache(three_branch_repo: Path, tmp_path: Path):
     time.sleep(1.1)
 
     argv_force = [*argv, "--force"]
-    with mock_patch("src.review._invoke_with_timeout",
+    with mock_patch("review_shift.review._invoke_with_timeout",
                      return_value=(_low_finding_events(), False)) as mock_invoke:
         exit_code = cli.main(argv_force)
     assert exit_code == 0
@@ -331,7 +343,7 @@ def test_total_budget_exhausted_skips_remaining_branches(three_branch_repo: Path
     )
     out_dir = tmp_path / "runs"
     argv = ["run", "--base", "main", "--repo", str(three_branch_repo), "--out-dir", str(out_dir)]
-    with mock_patch("src.review._invoke_with_timeout",
+    with mock_patch("review_shift.review._invoke_with_timeout",
                      return_value=(_low_finding_events(cost_usd=0.05), False)):
         exit_code = cli.main(argv)
     assert exit_code == 0
@@ -351,8 +363,8 @@ def test_auth_failure_exits_4_before_any_branch_runs(three_branch_repo: Path, tm
         args=["claude"], returncode=1, stdout="",
         stderr="Error: not logged in. Please run `claude login`.",
     )
-    with mock_patch("src.review._run_preflight", return_value=failing):
-        with mock_patch("src.review._invoke_with_timeout") as mock_invoke:
+    with mock_patch("review_shift.review._run_preflight", return_value=failing):
+        with mock_patch("review_shift.review._invoke_with_timeout") as mock_invoke:
             exit_code = cli.main(argv)
     assert exit_code == 4
     mock_invoke.assert_not_called()
@@ -368,7 +380,7 @@ def test_quota_exhaustion_exits_4(three_branch_repo: Path, tmp_path: Path):
     argv = ["run", "--base", "main", "--repo", str(three_branch_repo), "--out-dir", str(out_dir)]
     failing = subprocess.CompletedProcess(args=["claude"], returncode=1, stdout="",
                                            stderr="Error: rate limit exceeded, quota exhausted")
-    with mock_patch("src.review._run_preflight", return_value=failing):
+    with mock_patch("review_shift.review._run_preflight", return_value=failing):
         exit_code = cli.main(argv)
     assert exit_code == 4
     batch_files = list(out_dir.glob("*-batch.json"))
@@ -449,7 +461,7 @@ def test_hard_timeout_kills_one_branch_but_batch_still_finishes_the_other(tmp_pa
 
     out_dir = tmp_path / "runs"
     proc = subprocess.run(
-        [sys.executable, "-m", "src.cli", "run", "--base", "main", "--repo", str(repo),
+        [sys.executable, "-m", "review_shift.cli", "run", "--base", "main", "--repo", str(repo),
          "--out-dir", str(out_dir)],
         cwd=str(Path(__file__).resolve().parent.parent), env=env,
         capture_output=True, text=True, timeout=30,

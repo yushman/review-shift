@@ -1,5 +1,5 @@
 """Localization core (ADR-013 §1-2) — the highest-risk logic in the product."""
-from src.patch import localize
+from review_shift.patch import localize
 
 
 def test_single_match_in_window_is_applicable():

@@ -5,12 +5,11 @@ than only in prose.
 """
 from __future__ import annotations
 
-from pathlib import Path
-
 import yaml
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-ROOT_SKILL = REPO_ROOT / "SKILL.md"
+from review_shift import cli
+
+CANONICAL_SKILL = cli.PLUGIN_SKILL_PATH
 
 
 def _frontmatter(text: str) -> dict[str, object]:
@@ -19,24 +18,24 @@ def _frontmatter(text: str) -> dict[str, object]:
     return yaml.safe_load(fm)  # type: ignore[no-any-return]
 
 
-def test_root_skill_md_exists_with_expected_frontmatter():
-    text = ROOT_SKILL.read_text()
+def test_canonical_skill_md_exists_with_expected_frontmatter():
+    text = CANONICAL_SKILL.read_text()
     fm = _frontmatter(text)
     assert fm["name"] == "review-shift"
     assert "description" in fm
 
 
 def test_skill_md_documents_the_one_branch_depth_cap():
-    text = ROOT_SKILL.read_text()
+    text = CANONICAL_SKILL.read_text()
     assert "one branch" in text
     assert "depth <= medium" in text or "depth: high" in text
 
 
 def test_skill_md_documents_lock_reuse():
-    text = ROOT_SKILL.read_text()
+    text = CANONICAL_SKILL.read_text()
     assert ".review-shift/.lock" in text
 
 
 def test_skill_md_documents_the_standalone_fallback_recipe():
-    text = ROOT_SKILL.read_text()
+    text = CANONICAL_SKILL.read_text()
     assert "review-shift run --branch $(git branch --show-current) --depth low" in text

@@ -1,5 +1,5 @@
-from src import report
-from src.patch import LocalizedFinding
+from review_shift import report
+from review_shift.patch import LocalizedFinding
 
 
 def _lf(index, file, line, severity, status, before=None, after=None):

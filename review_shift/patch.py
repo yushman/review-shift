@@ -13,8 +13,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from src import gitutil
-from src.redact import MARKER_PREFIX
+from review_shift import gitutil
+from review_shift.redact import MARKER_PREFIX
 
 Finding = dict[str, Any]
 

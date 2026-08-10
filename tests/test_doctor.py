@@ -16,7 +16,7 @@ import subprocess
 from pathlib import Path
 from unittest.mock import patch as mock_patch
 
-from src import doctor, launchd_ops
+from review_shift import doctor, launchd_ops
 
 
 def _git(repo: Path, *args: str) -> None:
@@ -83,7 +83,7 @@ def test_check_auth_passes_by_default_stubbed_preflight():
 
 def test_check_auth_fails_when_preflight_reports_auth_error():
     failing = subprocess.CompletedProcess(["claude"], 1, stdout="", stderr="not logged in")
-    with mock_patch("src.review._run_preflight", return_value=failing):
+    with mock_patch("review_shift.review._run_preflight", return_value=failing):
         result = doctor.check_auth_liveness()
     assert result.ok is False
 
@@ -287,7 +287,7 @@ def test_run_doctor_reports_every_check_even_when_several_fail(tmp_path: Path, m
     monkeypatch.setattr(doctor.shutil, "which", lambda name: None)
     failing_auth = subprocess.CompletedProcess(["claude"], 1, stdout="", stderr="not logged in")
     monkeypatch.setattr(launchd_ops, "_run_pmset", lambda *a, **k: _no_pmset_schedule_proc())
-    with mock_patch("src.review._run_preflight", return_value=failing_auth):
+    with mock_patch("review_shift.review._run_preflight", return_value=failing_auth):
         checks = doctor.run_doctor(repo, plist_path=tmp_path / "nope.plist",
                                     log_dir=tmp_path / "nope-log")
 

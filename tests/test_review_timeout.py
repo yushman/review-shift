@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from src import review
+from review_shift import review
 
 STUB_SOURCE = '''#!/usr/bin/env python3
 import argparse, json, os, signal, sys, time
@@ -139,7 +139,7 @@ def test_run_review_without_timeouts_uses_original_untimed_path(tmp_path: Path):
                "result": json.dumps({"schema_version": 1, "findings": []})}]
     completed = subprocess.CompletedProcess(args=["claude"], returncode=0,
                                              stdout=json.dumps(events), stderr="")
-    with patch("src.review.subprocess.run", return_value=completed) as mock_run:
+    with patch("review_shift.review.subprocess.run", return_value=completed) as mock_run:
         result = review.run_review(
             branch="feature/x", base="main", depth="medium", repo_root=tmp_path,
             diff_text="", head_sha="abc123", repo_files={"src/foo.py"},

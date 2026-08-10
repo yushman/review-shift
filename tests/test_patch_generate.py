@@ -1,7 +1,7 @@
 """Conflict resolution and the git apply --check gate (ADR-013 §3-5), against a real repo."""
 from pathlib import Path
 
-from src.patch import NO_FIX, REDACTED, generate_and_verify, resolve
+from review_shift.patch import NO_FIX, REDACTED, generate_and_verify, resolve
 
 
 def test_resolve_marks_stale_and_applicable(fixture_repo: Path, head_sha: str):

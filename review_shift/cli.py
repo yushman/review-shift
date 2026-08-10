@@ -16,13 +16,13 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from src import batch, discover, doctor, gitutil, launchd_ops, redact
-from src import config as config_module
-from src.exitcodes import EXIT_INTERNAL_ERROR, EXIT_OK
+from review_shift import batch, discover, doctor, gitutil, launchd_ops, redact
+from review_shift import config as config_module
+from review_shift.exitcodes import EXIT_INTERNAL_ERROR, EXIT_OK
 
-TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "templates"
+TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 PLUGIN_SKILL_PATH = (
-    Path(__file__).resolve().parent.parent / "plugin" / "skills" / "review-shift" / "SKILL.md"
+    Path(__file__).resolve().parent / "plugin" / "skills" / "review-shift" / "SKILL.md"
 )
 GIT_EXCLUDE_ENTRY = ".review-shift/runs/"
 
@@ -135,9 +135,8 @@ def cmd_init(args: argparse.Namespace) -> int:
 
 
 def cmd_init_skill(args: argparse.Namespace) -> int:
-    """Copy the canonical `SKILL.md` (`environment-setup` spec, `claude-plugin-distribution`
-    "SKILL.md content is byte-for-bit identical across the two git-tracked copies") into the
-    consumer repo's `.claude/skills/review-shift/SKILL.md`, overwriting on re-run -- the same
+    """Copy the canonical `SKILL.md` (`environment-setup` spec) into the consumer repo's
+    `.claude/skills/review-shift/SKILL.md`, overwriting on re-run -- the same
     marketplace-independent path this dev repo already uses for its own copy, just invoked by
     the CLI instead of done by hand (design.md's "init gains init skill" decision)."""
     repo_root = Path(args.repo).resolve() if args.repo else Path.cwd()

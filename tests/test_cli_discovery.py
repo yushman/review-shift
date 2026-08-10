@@ -9,7 +9,7 @@ import subprocess
 from pathlib import Path
 from unittest.mock import patch as mock_patch
 
-from src import cli, discover
+from review_shift import cli, discover
 
 
 def _git(repo: Path, *args: str) -> None:
@@ -75,7 +75,7 @@ def test_run_with_no_branch_reviews_the_discovered_set(branched_repo: Path, tmp_
     out_dir = tmp_path / "runs"
     argv = ["run", "--base", "main", "--repo", str(branched_repo), "--out-dir", str(out_dir)]
     mock_events = (_fake_claude_events(), False)
-    with mock_patch("src.review._invoke_with_timeout", return_value=mock_events):
+    with mock_patch("review_shift.review._invoke_with_timeout", return_value=mock_events):
         exit_code = cli.main(argv)
 
     assert exit_code == 0
@@ -122,7 +122,7 @@ def test_run_with_no_branch_records_skip_reasons_in_reviewed_branch_report(
     out_dir = tmp_path / "runs"
     argv = ["run", "--base", "main", "--repo", str(branched_repo), "--out-dir", str(out_dir)]
     mock_events = (_fake_claude_events(), False)
-    with mock_patch("src.review._invoke_with_timeout", return_value=mock_events):
+    with mock_patch("review_shift.review._invoke_with_timeout", return_value=mock_events):
         exit_code = cli.main(argv)
 
     assert exit_code == 0

@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from src import cli, launchd_ops
+from review_shift import cli, launchd_ops
 
 
 def _git(repo: Path, *args: str) -> None:
@@ -122,8 +122,8 @@ def test_init_skill_overwrites_stale_content_on_rerun(repo: Path):
 
 
 def test_doctor_exits_zero_on_clean_repo(repo: Path, monkeypatch):
-    monkeypatch.setattr("src.doctor._run_version_cmd", lambda: _OK_VERSION)
-    monkeypatch.setattr("src.doctor.shutil.which", lambda name: f"/usr/local/bin/{name}")
+    monkeypatch.setattr("review_shift.doctor._run_version_cmd", lambda: _OK_VERSION)
+    monkeypatch.setattr("review_shift.doctor.shutil.which", lambda name: f"/usr/local/bin/{name}")
     monkeypatch.setattr(launchd_ops, "_run_pmset", lambda *a, **k: _NO_PMSET_SCHEDULE)
 
     rc = cli.main(["doctor", "--repo", str(repo)])
@@ -135,8 +135,8 @@ def test_doctor_exits_nonzero_when_a_check_fails(repo: Path, monkeypatch):
     def raise_not_found() -> subprocess.CompletedProcess[str]:
         raise FileNotFoundError("claude")
 
-    monkeypatch.setattr("src.doctor._run_version_cmd", raise_not_found)
-    monkeypatch.setattr("src.doctor.shutil.which", lambda name: None)
+    monkeypatch.setattr("review_shift.doctor._run_version_cmd", raise_not_found)
+    monkeypatch.setattr("review_shift.doctor.shutil.which", lambda name: None)
     monkeypatch.setattr(launchd_ops, "_run_pmset", lambda *a, **k: _NO_PMSET_SCHEDULE)
 
     rc = cli.main(["doctor", "--repo", str(repo)])
@@ -148,8 +148,8 @@ def test_doctor_prints_every_check_not_just_the_first_failure(repo: Path, monkey
     def raise_not_found() -> subprocess.CompletedProcess[str]:
         raise FileNotFoundError("claude")
 
-    monkeypatch.setattr("src.doctor._run_version_cmd", raise_not_found)
-    monkeypatch.setattr("src.doctor.shutil.which", lambda name: None)
+    monkeypatch.setattr("review_shift.doctor._run_version_cmd", raise_not_found)
+    monkeypatch.setattr("review_shift.doctor.shutil.which", lambda name: None)
     monkeypatch.setattr(launchd_ops, "_run_pmset", lambda *a, **k: _NO_PMSET_SCHEDULE)
 
     cli.main(["doctor", "--repo", str(repo)])
@@ -168,8 +168,8 @@ def test_init_launchd_refuses_when_doctor_fails(repo: Path, tmp_path: Path, monk
     def raise_not_found() -> subprocess.CompletedProcess[str]:
         raise FileNotFoundError("claude")
 
-    monkeypatch.setattr("src.doctor._run_version_cmd", raise_not_found)
-    monkeypatch.setattr("src.doctor.shutil.which", lambda name: None)
+    monkeypatch.setattr("review_shift.doctor._run_version_cmd", raise_not_found)
+    monkeypatch.setattr("review_shift.doctor.shutil.which", lambda name: None)
     monkeypatch.setattr(launchd_ops, "_run_pmset", lambda *a, **k: _NO_PMSET_SCHEDULE)
     plist_path = tmp_path / "com.user.review-shift.plist"
     monkeypatch.setattr(launchd_ops, "PLIST_PATH", plist_path)
@@ -188,8 +188,8 @@ def _fake_ok_launchctl(cmd: list[str], **kwargs: object) -> subprocess.Completed
 def test_init_launchd_writes_plist_and_creates_log_dir_and_registers_pmset(
     repo: Path, tmp_path: Path, monkeypatch
 ):
-    monkeypatch.setattr("src.doctor._run_version_cmd", lambda: _OK_VERSION)
-    monkeypatch.setattr("src.doctor.shutil.which", lambda name: f"/usr/local/bin/{name}")
+    monkeypatch.setattr("review_shift.doctor._run_version_cmd", lambda: _OK_VERSION)
+    monkeypatch.setattr("review_shift.doctor.shutil.which", lambda name: f"/usr/local/bin/{name}")
     pmset_calls: list[list[str]] = []
 
     def fake_pmset(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
@@ -217,8 +217,8 @@ def test_init_launchd_writes_plist_and_creates_log_dir_and_registers_pmset(
 def test_init_launchd_never_overwrites_existing_pmset_schedule(
     repo: Path, tmp_path: Path, monkeypatch
 ):
-    monkeypatch.setattr("src.doctor._run_version_cmd", lambda: _OK_VERSION)
-    monkeypatch.setattr("src.doctor.shutil.which", lambda name: f"/usr/local/bin/{name}")
+    monkeypatch.setattr("review_shift.doctor._run_version_cmd", lambda: _OK_VERSION)
+    monkeypatch.setattr("review_shift.doctor.shutil.which", lambda name: f"/usr/local/bin/{name}")
     existing_schedule = subprocess.CompletedProcess(
         [], 0, "Repeating power events:\n  wakeorpoweron at 6:00AM every day \n", ""
     )
@@ -252,8 +252,8 @@ def test_init_launchd_with_force_overwrites_existing_pmset_schedule(
     overwriting a foreign schedule, so an opt-in `--force-pmset` escape hatch is offered for
     the case where the existing schedule genuinely is review-shift's own from a previous
     install (re-running `init launchd` after changing `launchd.hour` in config, say)."""
-    monkeypatch.setattr("src.doctor._run_version_cmd", lambda: _OK_VERSION)
-    monkeypatch.setattr("src.doctor.shutil.which", lambda name: f"/usr/local/bin/{name}")
+    monkeypatch.setattr("review_shift.doctor._run_version_cmd", lambda: _OK_VERSION)
+    monkeypatch.setattr("review_shift.doctor.shutil.which", lambda name: f"/usr/local/bin/{name}")
     existing_schedule = subprocess.CompletedProcess(
         [], 0, "Repeating power events:\n  wakeorpoweron at 6:00AM every day \n", ""
     )
@@ -287,8 +287,8 @@ def test_init_launchd_bootstraps_the_job_via_the_launchctl_seam(
     -- but it must go through the mockable `_run_launchctl` seam, never a real
     `subprocess.run(["launchctl", ...])`, so this test (and every other `init launchd` test)
     never registers a real job on the machine running the tests."""
-    monkeypatch.setattr("src.doctor._run_version_cmd", lambda: _OK_VERSION)
-    monkeypatch.setattr("src.doctor.shutil.which", lambda name: f"/usr/local/bin/{name}")
+    monkeypatch.setattr("review_shift.doctor._run_version_cmd", lambda: _OK_VERSION)
+    monkeypatch.setattr("review_shift.doctor.shutil.which", lambda name: f"/usr/local/bin/{name}")
     monkeypatch.setattr(launchd_ops, "_run_pmset", lambda *a, **k: _NO_PMSET_SCHEDULE)
     launchctl_calls: list[list[str]] = []
 
@@ -315,8 +315,8 @@ def test_init_launchd_bootstraps_the_job_via_the_launchctl_seam(
 def test_init_launchd_reports_failure_when_launchctl_bootstrap_fails(
     repo: Path, tmp_path: Path, monkeypatch
 ):
-    monkeypatch.setattr("src.doctor._run_version_cmd", lambda: _OK_VERSION)
-    monkeypatch.setattr("src.doctor.shutil.which", lambda name: f"/usr/local/bin/{name}")
+    monkeypatch.setattr("review_shift.doctor._run_version_cmd", lambda: _OK_VERSION)
+    monkeypatch.setattr("review_shift.doctor.shutil.which", lambda name: f"/usr/local/bin/{name}")
     monkeypatch.setattr(launchd_ops, "_run_pmset", lambda *a, **k: _NO_PMSET_SCHEDULE)
 
     def fake_failing_launchctl(

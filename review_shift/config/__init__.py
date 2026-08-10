@@ -13,8 +13,8 @@ from typing import Any
 import jsonschema
 import yaml
 
-from src.config import migrations
-from src.config.schema import DEFAULTS, ENV_VAR_PATHS, SCHEMA_V1
+from review_shift.config import migrations
+from review_shift.config.schema import DEFAULTS, ENV_VAR_PATHS, SCHEMA_V1
 
 __all__ = ["ConfigError", "ConfigValidationError", "LoadedConfig", "load_config"]
 

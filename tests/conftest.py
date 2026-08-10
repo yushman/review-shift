@@ -14,7 +14,7 @@ def _stub_auth_preflight():
     own `mock_patch` inside the test body (nesting shadows this one for its duration)."""
     ok = subprocess.CompletedProcess(args=["claude"], returncode=0, stdout='{"type": "result"}',
                                       stderr="")
-    with mock_patch("src.review._run_preflight", return_value=ok):
+    with mock_patch("review_shift.review._run_preflight", return_value=ok):
         yield
 
 

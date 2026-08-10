@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from src import gitutil
+from review_shift import gitutil
 
 
 def _git(repo: Path, *args: str) -> None:
