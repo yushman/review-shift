@@ -6,12 +6,33 @@ build-backend = "setuptools.build_meta"
 name = "review-shift"
 version = "0.1.0"
 description = "Nightly autonomous code review of local git branches through Claude Code"
+readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
+authors = [
+    { name = "yush_man" },
+]
+keywords = ["code-review", "git", "claude-code", "cli", "automation"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Software Development :: Quality Assurance",
+]
 dependencies = [
     "PyYAML>=6.0",
     "jsonschema>=4.19",
 ]
+
+[project.urls]
+Homepage = "https://github.com/yushman/review-shift"
+Repository = "https://github.com/yushman/review-shift"
+Issues = "https://github.com/yushman/review-shift/issues"
 
 [project.scripts]
 review-shift = "src.cli:main"
