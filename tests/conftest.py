@@ -1,3 +1,4 @@
+import json
 import subprocess
 from pathlib import Path
 from unittest.mock import patch as mock_patch
@@ -12,8 +13,9 @@ def _stub_auth_preflight():
     auth failure shouldn't need a live `claude` login, so this stubs a passing preflight by
     default; a test that wants to exercise auth/quota failure overrides it locally with its
     own `mock_patch` inside the test body (nesting shadows this one for its duration)."""
-    ok = subprocess.CompletedProcess(args=["claude"], returncode=0, stdout='{"type": "result"}',
-                                      stderr="")
+    events = [{"type": "system"}, {"type": "result", "subtype": "success", "is_error": False}]
+    ok = subprocess.CompletedProcess(args=["claude"], returncode=0,
+                                      stdout=json.dumps(events), stderr="")
     with mock_patch("review_shift.review._run_preflight", return_value=ok):
         yield
 

@@ -88,6 +88,11 @@ class QuotaError(RuntimeError):
     """The auth preflight failed: rate limit or subscription quota exhausted (ADR-014)."""
 
 
+class AuthPreflightError(RuntimeError):
+    """The preflight call itself exhausted its own tiny budget before completing -- an
+    environment/cost problem, not evidence of bad credentials or account quota exhaustion."""
+
+
 def prompt_template_hash(depth: str) -> str:
     """Hash of the prompt *template* on disk for `depth`, independent of any rendered diff —
     NFR-1's `prompt_hash` idempotency-key component: editing `prompts/{depth}.md` must
@@ -97,17 +102,18 @@ def prompt_template_hash(depth: str) -> str:
     return hashlib.sha256(template.encode()).hexdigest()
 
 
-_AUTH_ERROR_MARKERS = ("not logged in", "authentication", "unauthorized", "please run", "login")
-_QUOTA_ERROR_MARKERS = ("quota", "rate limit", "rate_limit")
-
-
 def _run_preflight(cmd: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, capture_output=True, text=True, check=False)
 
 
 def check_auth(model: str = "sonnet") -> None:
     """A single, cheap `claude -p` call before the batch starts (ADR-014's risk R2 response):
-    failure must be visible before any branch runs, not discovered mid-batch."""
+    failure must be visible before any branch runs, not discovered mid-batch.
+
+    Classification reads the terminal `result` event's structured fields (`is_error`,
+    `subtype`), not raw stdout/stderr text -- a successful call can legitimately contain an
+    informational event (e.g. `rate_limit_event`) whose text would otherwise false-positive a
+    substring scan."""
     cmd = [
         "claude", "-p", "ok",
         "--output-format", "json",
@@ -117,11 +123,21 @@ def check_auth(model: str = "sonnet") -> None:
         "--no-session-persistence",
     ]
     proc = _run_preflight(cmd)
-    combined = f"{proc.stdout}\n{proc.stderr}".lower()
-    if any(marker in combined for marker in _QUOTA_ERROR_MARKERS):
+    try:
+        events = _parse_events(proc.stdout, proc.stderr)
+    except ReviewInvalid as exc:
+        raise AuthError("claude -p preflight failed authentication check") from exc
+
+    result = events[-1]
+    if not result.get("is_error"):
+        return
+
+    subtype = str(result.get("subtype", ""))
+    if subtype.startswith("error_max_") or "budget" in subtype:
+        raise AuthPreflightError("claude -p preflight exhausted its own budget before completing")
+    if "quota" in subtype or "rate_limit" in subtype:
         raise QuotaError("claude -p preflight reported quota/rate-limit exhaustion")
-    if proc.returncode != 0 or any(marker in combined for marker in _AUTH_ERROR_MARKERS):
-        raise AuthError("claude -p preflight failed authentication check")
+    raise AuthError("claude -p preflight failed authentication check")
 
 
 class ReviewTimeout(RuntimeError):

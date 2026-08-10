@@ -402,7 +402,7 @@ def run_batch(
                     exit_code=EXIT_AUTH_OR_QUOTA,
                 )
                 return EXIT_AUTH_OR_QUOTA
-            except review.AuthError as exc:
+            except (review.AuthError, review.AuthPreflightError) as exc:
                 print(f"error: {exc}", file=sys.stderr)
                 _write_batch_summary(
                     out_dir, base, batch_id=batch_id, started_at=batch_started_at, outcomes=[],

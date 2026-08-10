@@ -62,7 +62,7 @@ def check_claude_version() -> DoctorCheck:
 def check_auth_liveness(model: str = "sonnet") -> DoctorCheck:
     try:
         review.check_auth(model)
-    except (review.AuthError, review.QuotaError) as exc:
+    except (review.AuthError, review.QuotaError, review.AuthPreflightError) as exc:
         return DoctorCheck("auth", False, str(exc))
     return DoctorCheck("auth", True, "claude -p preflight succeeded")
 

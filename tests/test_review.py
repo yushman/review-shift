@@ -11,13 +11,14 @@ from review_shift import review
 
 
 def _result_event(structured_output=None, stop_reason="tool_use", subtype="success", result=None,
-                   cost=0.01):
+                   cost=0.01, is_error=False):
     payload = {
         "type": "result",
         "stop_reason": stop_reason,
         "subtype": subtype,
         "total_cost_usd": cost,
         "usage": {"input_tokens": 10, "output_tokens": 20},
+        "is_error": is_error,
     }
     if structured_output is not None:
         payload["structured_output"] = structured_output
@@ -152,21 +153,45 @@ def test_prompt_template_hash_changes_when_template_edited(tmp_path: Path, monke
 
 
 def _preflight_ok():
-    return subprocess.CompletedProcess(args=["claude"], returncode=0, stdout='{"type": "result"}',
-                                        stderr="")
+    return _completed([{"type": "system"}, _result_event(is_error=False)])
+
+
+def _preflight_ok_with_rate_limit_warning():
+    """A successful result preceded by an informational rate-limit warning -- must NOT raise."""
+    return _completed([
+        {"type": "system"},
+        {
+            "type": "rate_limit_event",
+            "rate_limit_info": {"status": "allowed_warning", "utilization": 0.8},
+        },
+        _result_event(is_error=False),
+    ])
 
 
 def _preflight_auth_failure():
-    return subprocess.CompletedProcess(
-        args=["claude"], returncode=1, stdout="",
-        stderr="Error: not logged in. Please run `claude login`.",
-    )
+    return _completed([
+        {"type": "system"},
+        _result_event(is_error=True, subtype="error_something_else"),
+    ])
 
 
 def _preflight_quota_failure():
+    return _completed([
+        {"type": "system"},
+        _result_event(is_error=True, subtype="error_rate_limit_exceeded"),
+    ])
+
+
+def _preflight_budget_exhausted():
+    return _completed([
+        {"type": "system"},
+        _result_event(is_error=True, subtype="error_max_budget_usd"),
+    ])
+
+
+def _preflight_unparseable():
     return subprocess.CompletedProcess(
-        args=["claude"], returncode=1, stdout="",
-        stderr="Error: rate limit exceeded, quota exhausted",
+        args=["claude"], returncode=1, stdout="not json", stderr="boom",
     )
 
 
@@ -175,7 +200,15 @@ def test_check_auth_succeeds_on_clean_response():
         review.check_auth()  # does not raise
 
 
-def test_check_auth_raises_auth_error_on_login_failure():
+def test_check_auth_succeeds_despite_informational_rate_limit_event():
+    with patch(
+        "review_shift.review._run_preflight",
+        return_value=_preflight_ok_with_rate_limit_warning(),
+    ):
+        review.check_auth()  # does not raise -- the result itself succeeded
+
+
+def test_check_auth_raises_auth_error_on_unrecognized_failure():
     with patch("review_shift.review._run_preflight", return_value=_preflight_auth_failure()):
         with pytest.raises(review.AuthError):
             review.check_auth()
@@ -184,6 +217,18 @@ def test_check_auth_raises_auth_error_on_login_failure():
 def test_check_auth_raises_quota_error_on_rate_limit():
     with patch("review_shift.review._run_preflight", return_value=_preflight_quota_failure()):
         with pytest.raises(review.QuotaError):
+            review.check_auth()
+
+
+def test_check_auth_raises_auth_preflight_error_on_own_budget_exhaustion():
+    with patch("review_shift.review._run_preflight", return_value=_preflight_budget_exhausted()):
+        with pytest.raises(review.AuthPreflightError):
+            review.check_auth()
+
+
+def test_check_auth_raises_auth_error_on_unparseable_output():
+    with patch("review_shift.review._run_preflight", return_value=_preflight_unparseable()):
+        with pytest.raises(review.AuthError):
             review.check_auth()
 
 

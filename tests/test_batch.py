@@ -356,13 +356,20 @@ def test_total_budget_exhausted_skips_remaining_branches(three_branch_repo: Path
     assert summary["exit_code"] == 0  # a normal skip, not a failure
 
 
+def _preflight_result(is_error: bool, subtype: str = "success") -> subprocess.CompletedProcess:
+    events = [
+        {"type": "system"},
+        {"type": "result", "subtype": subtype, "is_error": is_error},
+    ]
+    return subprocess.CompletedProcess(
+        args=["claude"], returncode=1 if is_error else 0, stdout=json.dumps(events), stderr="",
+    )
+
+
 def test_auth_failure_exits_4_before_any_branch_runs(three_branch_repo: Path, tmp_path: Path):
     out_dir = tmp_path / "runs"
     argv = ["run", "--base", "main", "--repo", str(three_branch_repo), "--out-dir", str(out_dir)]
-    failing = subprocess.CompletedProcess(
-        args=["claude"], returncode=1, stdout="",
-        stderr="Error: not logged in. Please run `claude login`.",
-    )
+    failing = _preflight_result(is_error=True, subtype="error_something_else")
     with mock_patch("review_shift.review._run_preflight", return_value=failing):
         with mock_patch("review_shift.review._invoke_with_timeout") as mock_invoke:
             exit_code = cli.main(argv)
@@ -378,14 +385,57 @@ def test_auth_failure_exits_4_before_any_branch_runs(three_branch_repo: Path, tm
 def test_quota_exhaustion_exits_4(three_branch_repo: Path, tmp_path: Path):
     out_dir = tmp_path / "runs"
     argv = ["run", "--base", "main", "--repo", str(three_branch_repo), "--out-dir", str(out_dir)]
-    failing = subprocess.CompletedProcess(args=["claude"], returncode=1, stdout="",
-                                           stderr="Error: rate limit exceeded, quota exhausted")
+    failing = _preflight_result(is_error=True, subtype="error_rate_limit_exceeded")
     with mock_patch("review_shift.review._run_preflight", return_value=failing):
         exit_code = cli.main(argv)
     assert exit_code == 4
     batch_files = list(out_dir.glob("*-batch.json"))
     summary = json.loads(batch_files[0].read_text())
     assert summary["auth_status"] == "quota_exhausted"
+
+
+def test_preflight_own_budget_exhaustion_exits_4_as_auth_failed(
+    three_branch_repo: Path, tmp_path: Path
+):
+    """The trivial preflight call running out of its own $0.01 budget is an environment/cost
+    problem, not evidence of bad credentials or account quota exhaustion -- but it still stops
+    the batch before any branch runs, same as a genuine auth failure."""
+    out_dir = tmp_path / "runs"
+    argv = ["run", "--base", "main", "--repo", str(three_branch_repo), "--out-dir", str(out_dir)]
+    failing = _preflight_result(is_error=True, subtype="error_max_budget_usd")
+    with mock_patch("review_shift.review._run_preflight", return_value=failing):
+        with mock_patch("review_shift.review._invoke_with_timeout") as mock_invoke:
+            exit_code = cli.main(argv)
+    assert exit_code == 4
+    mock_invoke.assert_not_called()
+    batch_files = list(out_dir.glob("*-batch.json"))
+    summary = json.loads(batch_files[0].read_text())
+    assert summary["auth_status"] == "auth_failed"
+
+
+def test_successful_preflight_with_rate_limit_warning_does_not_block_batch(
+    three_branch_repo: Path, tmp_path: Path
+):
+    out_dir = tmp_path / "runs"
+    argv = ["run", "--base", "main", "--repo", str(three_branch_repo), "--out-dir", str(out_dir)]
+    events = [
+        {"type": "system"},
+        {
+            "type": "rate_limit_event",
+            "rate_limit_info": {"status": "allowed_warning", "utilization": 0.8},
+        },
+        {"type": "result", "subtype": "success", "is_error": False},
+    ]
+    healthy = subprocess.CompletedProcess(
+        args=["claude"], returncode=0, stdout=json.dumps(events), stderr="",
+    )
+    with mock_patch("review_shift.review._run_preflight", return_value=healthy):
+        with mock_patch(
+            "review_shift.review._invoke_with_timeout",
+            return_value=(_low_finding_events(), False),
+        ) as mock_invoke:
+            cli.main(argv)
+    assert mock_invoke.called
 
 
 # --- real-subprocess hard timeout, exercised through the full batch/CLI stack -------------
