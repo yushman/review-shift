@@ -6,8 +6,7 @@ until after the merge.**
 
 [Русская версия](README.ru.md)
 
-> **Status: pre-release, in development.** The v0.1 implementation is being built. Nothing is
-> installable yet.
+> **Status: v0.1.0 released.** `pipx install review-shift` installs it from PyPI.
 
 ---
 
@@ -35,7 +34,7 @@ itself, never commits, never pushes, and never touches your working tree.
 ## Install
 
 ```bash
-pipx install review-shift     # not published yet — see Status above
+pipx install review-shift
 ```
 
 ## Golden path
@@ -82,7 +81,7 @@ review-shift init skill
 
 ```
 # in a Claude Code session: self-hosted marketplace, auto-updatable, namespaced command
-/plugin marketplace add <path-or-url-to-this-repo>   # not published yet — see Status above
+/plugin marketplace add https://github.com/yushman/review-shift
 /plugin install review-shift@review-shift
 # invoked as /review-shift:review-shift (Claude Code always namespaces plugin skills)
 ```

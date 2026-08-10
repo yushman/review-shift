@@ -5,7 +5,7 @@
 
 [English version](README.md)
 
-> **Статус: до релиза, в разработке.** Реализация v0.1 в работе. Устанавливать пока нечего.
+> **Статус: выпущен v0.1.0.** `pipx install review-shift` ставит его из PyPI.
 
 ---
 
@@ -34,7 +34,7 @@
 ## Установка
 
 ```bash
-pipx install review-shift     # ещё не опубликовано — см. «Статус» выше
+pipx install review-shift
 ```
 
 ## Основной сценарий
@@ -82,7 +82,7 @@ review-shift init skill
 
 ```
 # внутри сессии Claude Code: self-hosted маркетплейс, авто-обновление, namespaced-команда
-/plugin marketplace add <путь-или-url-до-этого-репозитория>  # ещё не опубликовано — см. «Статус»
+/plugin marketplace add https://github.com/yushman/review-shift
 /plugin install review-shift@review-shift
 # вызывается как /review-shift:review-shift (Claude Code всегда добавляет плагину префикс)
 ```
