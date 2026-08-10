@@ -57,6 +57,17 @@ Then, in the morning:
 $EDITOR .review-shift/runs/latest/report.md
 ```
 
+## Demo
+
+```bash
+asciinema play demo/review-shift.cast
+```
+
+Findings in the recording are scripted for a fast, free, reproducible playback — `init`,
+`doctor` and the patch/report artifacts you see are real review-shift output, produced by the
+same `patch.resolve` / `patch.generate_and_verify` / `report.render` code a real overnight run
+uses (the recording only skips the live model call).
+
 ## In-session review (`/review-shift`)
 
 `review-shift` also works from inside a Claude Code session, as a skill that shells out to

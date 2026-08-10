@@ -57,6 +57,17 @@ review-shift init launchd
 $EDITOR .review-shift/runs/latest/report.md
 ```
 
+## Демо
+
+```bash
+asciinema play demo/review-shift.cast
+```
+
+Находки в записи — сценарий ради быстрого, бесплатного и воспроизводимого прогона: `init`,
+`doctor` и артефакты патча/отчёта в записи настоящие, произведены тем же кодом
+(`patch.resolve` / `patch.generate_and_verify` / `report.render`), что и реальный ночной
+прогон — запись пропускает только сам вызов модели.
+
 ## In-session ревью (`/review-shift`)
 
 `review-shift` также работает изнутри сессии Claude Code как скилл, который вызывает тот же
