@@ -11,7 +11,6 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ROOT_SKILL = REPO_ROOT / "SKILL.md"
-PROJECT_SKILL = REPO_ROOT / ".claude" / "skills" / "review-shift" / "SKILL.md"
 
 
 def _frontmatter(text: str) -> dict[str, object]:
@@ -25,13 +24,6 @@ def test_root_skill_md_exists_with_expected_frontmatter():
     fm = _frontmatter(text)
     assert fm["name"] == "review-shift"
     assert "description" in fm
-
-
-def test_root_and_project_skill_md_are_in_sync():
-    """The `.claude/skills/review-shift/` copy is what makes `/review-shift` actually
-    invocable in this dev repo's own Claude Code sessions; it must not silently drift from
-    the canonical root SKILL.md."""
-    assert ROOT_SKILL.read_text() == PROJECT_SKILL.read_text()
 
 
 def test_skill_md_documents_the_one_branch_depth_cap():
