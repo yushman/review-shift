@@ -1,0 +1,14 @@
+{
+  "name": "review-shift",
+  "owner": {
+    "name": "review-shift"
+  },
+  "description": "Self-hosted marketplace for the review-shift plugin (autonomous code review of local git branches).",
+  "plugins": [
+    {
+      "name": "review-shift",
+      "source": "./plugin",
+      "description": "Autonomous code review of one local git branch, reusing review-shift's own prompts, lock and CLI rather than reimplementing review logic in-session."
+    }
+  ]
+}
