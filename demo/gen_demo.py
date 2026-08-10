@@ -6,7 +6,6 @@ that on every re-recording would make this demo cost money and stop being reprod
 """
 from __future__ import annotations
 
-import os
 import shutil
 import subprocess
 import sys
@@ -36,9 +35,9 @@ FINDINGS = [
 ]
 
 
-def sh(*args: str, cwd: Path, env: dict[str, str] | None = None) -> str:
+def sh(*args: str, cwd: Path) -> str:
     return subprocess.run(
-        list(args), cwd=cwd, env=env, check=True, capture_output=True, text=True
+        list(args), cwd=cwd, check=True, capture_output=True, text=True
     ).stdout
 
 
@@ -69,11 +68,6 @@ def review_shift_bin() -> str:
 
 def main() -> None:
     rs = review_shift_bin()
-    # `doctor`'s own `absolute_paths` check does its own `shutil.which("review-shift")` in the
-    # subprocess it runs as -- put rs's directory on PATH for these calls so that check finds
-    # it the same way a real install (on PATH) would, instead of failing because we invoked rs
-    # by absolute path.
-    env = dict(os.environ, PATH=f"{Path(rs).parent}{os.pathsep}{os.environ.get('PATH', '')}")
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         head_sha = build_demo_repo(root)
@@ -103,21 +97,10 @@ def main() -> None:
 
         print("# review-shift -- the morning ritual")
         print("# (findings below are scripted for a reproducible, free recording;")
-        print("#  init/doctor and the patch/report are real review-shift output)")
+        print("#  init and the patch/report are real review-shift output)")
         print()
         print("$ review-shift init")
-        print(sh(rs, "init", "--repo", str(root), cwd=root, env=env), end="")
-        print("$ review-shift doctor")
-        # doctor runs every check independently and reports pass/fail per check by design (it
-        # never stops at the first failure -- see src/doctor.py); its exit code reflects
-        # whether *every* check passed on *this* machine (e.g. auth is a live, budget-capped
-        # `claude -p` preflight), not whether the command itself worked, so this call does not
-        # use sh()'s check=True.
-        doctor_proc = subprocess.run(
-            [rs, "doctor", "--repo", str(root)], cwd=root, env=env,
-            capture_output=True, text=True, check=False,
-        )
-        print(doctor_proc.stdout, end="")
+        print(sh(rs, "init", "--repo", str(root), cwd=root), end="")
         print()
         print("# ... night passes, review-shift run produces .review-shift/runs/demo/ ...")
         print()

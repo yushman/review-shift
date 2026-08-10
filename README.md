@@ -63,10 +63,11 @@ $EDITOR .review-shift/runs/latest/report.md
 asciinema play demo/review-shift.cast
 ```
 
-Findings in the recording are scripted for a fast, free, reproducible playback — `init`,
-`doctor` and the patch/report artifacts you see are real review-shift output, produced by the
-same `patch.resolve` / `patch.generate_and_verify` / `report.render` code a real overnight run
-uses (the recording only skips the live model call).
+Findings in the recording are scripted for a fast, free, reproducible playback — `init` and
+the patch/report artifacts you see are real review-shift output, produced by the same
+`patch.resolve` / `patch.generate_and_verify` / `report.render` code a real overnight run uses
+(the recording skips the live model call `review-shift run` makes, and doesn't run `doctor`
+either, since its own auth check is a live call too).
 
 ## In-session review (`/review-shift`)
 
