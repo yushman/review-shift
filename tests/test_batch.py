@@ -394,6 +394,23 @@ def test_quota_exhaustion_exits_4(three_branch_repo: Path, tmp_path: Path):
     assert summary["auth_status"] == "quota_exhausted"
 
 
+def test_configured_auth_preflight_budget_reaches_the_preflight_command(
+    three_branch_repo: Path, tmp_path: Path
+):
+    _write_config(three_branch_repo, "runtime:\n  auth_preflight_budget_usd: 0.25\n")
+    out_dir = tmp_path / "runs"
+    argv = ["run", "--base", "main", "--repo", str(three_branch_repo), "--out-dir", str(out_dir)]
+    ok = _preflight_result(is_error=False)
+    with mock_patch("review_shift.review._run_preflight", return_value=ok) as mock_preflight:
+        with mock_patch(
+            "review_shift.review._invoke_with_timeout",
+            return_value=(_low_finding_events(), False),
+        ):
+            cli.main(argv)
+    cmd = mock_preflight.call_args[0][0]
+    assert cmd[cmd.index("--max-budget-usd") + 1] == "0.25"
+
+
 def test_preflight_own_budget_exhaustion_exits_4_as_auth_failed(
     three_branch_repo: Path, tmp_path: Path
 ):

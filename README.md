@@ -6,7 +6,7 @@ until after the merge.**
 
 [Русская версия](README.ru.md)
 
-> **Status: v0.1.0 released.** `pipx install review-shift` installs it from PyPI.
+> **Status: v0.1.2 released.** `pipx install review-shift` installs it from PyPI.
 
 ---
 
@@ -55,6 +55,26 @@ Then, in the morning:
 ```bash
 $EDITOR .review-shift/runs/latest/report.md
 ```
+
+## Configuration
+
+`review-shift init` writes `.review-shift/config.yml`, self-documented with inline comments —
+that file is the reference. A few fields worth knowing about before you first tune anything:
+
+| Field | Default | |
+|---|---|---|
+| `depth` | `medium` | `low` \| `medium` — sets the review prompt, effort and max-findings preset |
+| `discovery.patterns` | `[]` | fnmatch globs (or `re:`-prefixed regex) restricting which branches get discovered; empty means "every recently-moved branch" |
+| `discovery.max_age_hours` | `24` | a branch is eligible only if its last commit is within this window |
+| `runtime.budget_usd` | `10.00` | spend cap for one branch's review |
+| `runtime.total_budget_usd` | `50.00` | spend cap for the whole run; once hit, remaining branches are marked `skipped: budget_exhausted`, not treated as a failure |
+| `runtime.auth_preflight_budget_usd` | `0.01` | budget for the cheap health check `run`/`doctor` do before touching any branch; raise this if it fails with "exhausted its own budget" on a machine with a large cached system prompt (many MCP servers/plugins inflate even the very first call) |
+| `patch.auto_fix_min_severity` | `high` | minimum severity that lands in `auto_fixed.patch` instead of only `all.patch` |
+
+Any scalar `runtime`/`discovery`/`patch` field (plus `depth`/`base_branch`) can also be set via
+an env var, `REVIEW_SHIFT__<SECTION>__<FIELD>` (e.g.
+`REVIEW_SHIFT__RUNTIME__AUTH_PREFLIGHT_BUDGET_USD=0.10`). Precedence is config file → env var →
+CLI flag, where a flag exists — `run --depth`/`--model` and a few others override both.
 
 ## Demo
 

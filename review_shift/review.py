@@ -106,7 +106,7 @@ def _run_preflight(cmd: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, capture_output=True, text=True, check=False)
 
 
-def check_auth(model: str = "sonnet") -> None:
+def check_auth(model: str = "sonnet", budget_usd: float = 0.01) -> None:
     """A single, cheap `claude -p` call before the batch starts (ADR-014's risk R2 response):
     failure must be visible before any branch runs, not discovered mid-batch.
 
@@ -118,7 +118,7 @@ def check_auth(model: str = "sonnet") -> None:
         "claude", "-p", "ok",
         "--output-format", "json",
         "--model", model,
-        "--max-budget-usd", "0.01",
+        "--max-budget-usd", str(budget_usd),
         "--permission-mode", "plan",
         "--no-session-persistence",
     ]

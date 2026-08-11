@@ -200,6 +200,16 @@ def test_check_auth_succeeds_on_clean_response():
         review.check_auth()  # does not raise
 
 
+def test_check_auth_passes_configured_budget_to_the_preflight_command():
+    with patch(
+        "review_shift.review._run_preflight", return_value=_preflight_ok()
+    ) as mock_preflight:
+        review.check_auth(budget_usd=0.25)
+    cmd = mock_preflight.call_args[0][0]
+    assert "--max-budget-usd" in cmd
+    assert cmd[cmd.index("--max-budget-usd") + 1] == "0.25"
+
+
 def test_check_auth_succeeds_despite_informational_rate_limit_event():
     with patch(
         "review_shift.review._run_preflight",

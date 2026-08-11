@@ -59,9 +59,9 @@ def check_claude_version() -> DoctorCheck:
     return DoctorCheck("claude_version", True, f"claude {'.'.join(str(p) for p in version)}")
 
 
-def check_auth_liveness(model: str = "sonnet") -> DoctorCheck:
+def check_auth_liveness(model: str = "sonnet", budget_usd: float = 0.01) -> DoctorCheck:
     try:
-        review.check_auth(model)
+        review.check_auth(model, budget_usd)
     except (review.AuthError, review.QuotaError, review.AuthPreflightError) as exc:
         return DoctorCheck("auth", False, str(exc))
     return DoctorCheck("auth", True, "claude -p preflight succeeded")
@@ -172,14 +172,17 @@ def run_doctor(
     # load is independent of check_config_version()'s own load, and falls back to schema
     # defaults for the two fields (hour/minute/wake_machine) the later checks need.
     try:
-        launchd_cfg = config_module.load_config(repo_root).data["launchd"]
+        loaded_data = config_module.load_config(repo_root).data
+        launchd_cfg = loaded_data["launchd"]
+        runtime_cfg = loaded_data["runtime"]
     except config_module.ConfigError:
         launchd_cfg = DEFAULTS["launchd"]
+        runtime_cfg = DEFAULTS["runtime"]
     plist_installed = plist_path.exists()
 
     return [
         check_claude_version(),
-        check_auth_liveness(model),
+        check_auth_liveness(model, budget_usd=runtime_cfg["auth_preflight_budget_usd"]),
         check_config_version(repo_root),
         check_absolute_paths(),
         check_log_directory(log_dir, plist_installed=plist_installed),

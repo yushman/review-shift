@@ -51,6 +51,7 @@ SCHEMA_V1: dict[str, Any] = {
                 "hard_timeout_minutes": {"type": "number", "exclusiveMinimum": 0},
                 "budget_usd": {"type": "number", "exclusiveMinimum": 0},
                 "total_budget_usd": {"type": "number", "exclusiveMinimum": 0},
+                "auth_preflight_budget_usd": {"type": "number", "exclusiveMinimum": 0},
                 "model": {"type": "string"},
                 "exit_zero_on_findings": {"type": "boolean"},
             },
@@ -106,6 +107,7 @@ DEFAULTS: dict[str, Any] = {
         "hard_timeout_minutes": 45,
         "budget_usd": 10.00,
         "total_budget_usd": 50.00,
+        "auth_preflight_budget_usd": 0.01,
         "model": "sonnet",
         "exit_zero_on_findings": False,
     },
@@ -132,6 +134,7 @@ ENV_VAR_PATHS: dict[str, tuple[str, ...]] = {
     "REVIEW_SHIFT__RUNTIME__MODEL": ("runtime", "model"),
     "REVIEW_SHIFT__RUNTIME__BUDGET_USD": ("runtime", "budget_usd"),
     "REVIEW_SHIFT__RUNTIME__TOTAL_BUDGET_USD": ("runtime", "total_budget_usd"),
+    "REVIEW_SHIFT__RUNTIME__AUTH_PREFLIGHT_BUDGET_USD": ("runtime", "auth_preflight_budget_usd"),
     "REVIEW_SHIFT__RUNTIME__EXIT_ZERO_ON_FINDINGS": ("runtime", "exit_zero_on_findings"),
     "REVIEW_SHIFT__PATCH__AUTO_FIX_MIN_SEVERITY": ("patch", "auto_fix_min_severity"),
 }

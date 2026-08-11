@@ -46,6 +46,18 @@ def test_missing_config_file_uses_all_defaults(tmp_path: Path):
     assert loaded.data["discovery"]["discover_all"] is False
 
 
+def test_auth_preflight_budget_defaults_to_one_cent(tmp_path: Path):
+    loaded = config.load_config(tmp_path)
+    assert loaded.data["runtime"]["auth_preflight_budget_usd"] == 0.01
+
+
+def test_auth_preflight_budget_env_override(tmp_path: Path):
+    loaded = config.load_config(
+        tmp_path, env={"REVIEW_SHIFT__RUNTIME__AUTH_PREFLIGHT_BUDGET_USD": "0.25"}
+    )
+    assert loaded.data["runtime"]["auth_preflight_budget_usd"] == 0.25
+
+
 def test_json_config_is_also_supported(tmp_path: Path):
     cfg_path = tmp_path / ".review-shift" / "config.json"
     _write(cfg_path, json.dumps({"version": 1, "depth": "low"}))

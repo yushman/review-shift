@@ -88,6 +88,44 @@ def test_check_auth_fails_when_preflight_reports_auth_error():
     assert result.ok is False
 
 
+def test_check_auth_liveness_forwards_budget_to_preflight_command():
+    ok = subprocess.CompletedProcess(
+        ["claude"], 0,
+        stdout='[{"type": "system"}, {"type": "result", "subtype": "success", '
+               '"is_error": false}]',
+        stderr="",
+    )
+    with mock_patch("review_shift.review._run_preflight", return_value=ok) as mock_preflight:
+        doctor.check_auth_liveness(budget_usd=0.25)
+    cmd = mock_preflight.call_args[0][0]
+    assert cmd[cmd.index("--max-budget-usd") + 1] == "0.25"
+
+
+def test_run_doctor_reads_auth_preflight_budget_from_config(tmp_path: Path, monkeypatch):
+    repo = _repo(tmp_path)
+    (repo / ".review-shift").mkdir()
+    (repo / ".review-shift" / "config.yml").write_text(
+        "version: 1\nruntime:\n  auth_preflight_budget_usd: 0.25\n"
+    )
+    monkeypatch.setattr(doctor, "_run_version_cmd", lambda: _ok_version_proc())
+    monkeypatch.setattr(doctor.shutil, "which", lambda name: f"/usr/local/bin/{name}")
+    monkeypatch.setattr(launchd_ops, "_run_pmset", lambda *a, **k: _no_pmset_schedule_proc())
+
+    with mock_patch(
+        "review_shift.review._run_preflight",
+        return_value=subprocess.CompletedProcess(
+            ["claude"], 0,
+            stdout='[{"type": "system"}, {"type": "result", "subtype": "success", '
+                   '"is_error": false}]',
+            stderr="",
+        ),
+    ) as mock_preflight:
+        doctor.run_doctor(repo, plist_path=tmp_path / "nope.plist", log_dir=tmp_path / "nope-log")
+
+    cmd = mock_preflight.call_args[0][0]
+    assert cmd[cmd.index("--max-budget-usd") + 1] == "0.25"
+
+
 # --- config version -------------------------------------------------------------------------
 
 

@@ -379,6 +379,7 @@ def run_batch(
     runtime = loaded.data["runtime"]
     budget_usd = runtime["budget_usd"]
     total_budget_usd = runtime["total_budget_usd"]
+    auth_preflight_budget_usd = runtime["auth_preflight_budget_usd"]
     soft_timeout_minutes = runtime["soft_timeout_minutes"]
     hard_timeout_minutes = runtime["hard_timeout_minutes"]
     auto_fix_min_severity = loaded.data["patch"]["auto_fix_min_severity"]
@@ -393,7 +394,7 @@ def run_batch(
             # preflight before the batch") — a broken/expired auth environment must be visible
             # immediately, not discovered mid-batch.
             try:
-                review.check_auth(model=model)
+                review.check_auth(model=model, budget_usd=auth_preflight_budget_usd)
             except review.QuotaError as exc:
                 print(f"error: {exc}", file=sys.stderr)
                 _write_batch_summary(

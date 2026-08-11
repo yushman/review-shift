@@ -33,6 +33,7 @@ runtime:
   hard_timeout_minutes: 45
   budget_usd: 10.00
   total_budget_usd: 50.00
+  auth_preflight_budget_usd: 0.01  # the cheap "is auth healthy" call before the batch starts
   model: sonnet
   exit_zero_on_findings: false
 
