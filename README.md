@@ -70,11 +70,50 @@ that file is the reference. A few fields worth knowing about before you first tu
 | `runtime.total_budget_usd` | `50.00` | spend cap for the whole run; once hit, remaining branches are marked `skipped: budget_exhausted`, not treated as a failure |
 | `runtime.auth_preflight_budget_usd` | `0.01` | budget for the cheap health check `run`/`doctor` do before touching any branch; raise this if it fails with "exhausted its own budget" on a machine with a large cached system prompt (many MCP servers/plugins inflate even the very first call) |
 | `patch.auto_fix_min_severity` | `high` | minimum severity that lands in `auto_fixed.patch` instead of only `all.patch` |
+| `trunk.enabled` | `false` | reviews commits landed directly on the base branch instead of discovering branches — see Trunk review below |
+| `trunk.max_commits_per_run` | `10` | cap on commits reviewed by one trunk run; the rest is picked up the next night |
 
 Any scalar `runtime`/`discovery`/`patch` field (plus `depth`/`base_branch`) can also be set via
 an env var, `REVIEW_SHIFT__<SECTION>__<FIELD>` (e.g.
 `REVIEW_SHIFT__RUNTIME__AUTH_PREFLIGHT_BUDGET_USD=0.10`). Precedence is config file → env var →
 CLI flag, where a flag exists — `run --depth`/`--model` and a few others override both.
+
+## Trunk review (`--trunk`)
+
+Branch discovery skips the base branch on purpose — reviewing it needs a different question
+("what landed directly on `main` since we last looked?"), not "what changed relative to a merge
+base that doesn't exist for `main` itself". `review-shift run --branch main`, when `main` is
+the resolved base branch, is a usage error pointing at `--trunk`, not a silent empty review.
+
+```bash
+review-shift run --trunk
+```
+
+reviews the commits landed directly on the resolved base branch (`git rev-list --reverse
+--first-parent --no-merges`, oldest first), one at a time, merged into a single report and a
+single patch pair against the base branch's current head. Commits that arrived through a merged
+feature branch are never selected — that work already went through branch discovery — so
+nothing is paid for twice.
+
+Progress is tracked with a persisted watermark (`index.json`), not a time window, so a missed
+or late-running night never re-reviews or silently skips a commit. **The first run after
+enabling `trunk.enabled` (or passing `--trunk`) reviews nothing** — it initializes the
+watermark to the current head and starts reviewing from the next run onward; this is
+deliberate; see the report's Summary for `bootstrap` as the stated reason. A commit whose
+content has since been entirely replaced by a later one is skipped as `superseded` before any
+model call; a commit too large to review is skipped loudly as a coverage gap rather than
+wedging every future run.
+
+Each trunk finding names its originating commit and author, and states whether that commit is
+still local (`amend`/`rebase` available) or already pushed (fix forward only).
+
+Enable it via config instead of the flag:
+
+```yaml
+trunk:
+  enabled: true
+  max_commits_per_run: 10
+```
 
 ## Demo
 
@@ -177,8 +216,9 @@ problems does not look like a broken job.
 - **Run artifacts contain code fragments** and live in your working tree.
 - **v0.1 scope:** depths `low` and `medium`, local branches only, one repository per run.
   Diffs above ~2 000 changed lines are skipped with an explicit reason rather than truncated.
-  `high`, chunking, retention and incremental review are v0.2; remote branches and PR
-  integration are v0.3.
+  `high`, chunking and retention are v0.2; remote branches and PR integration are v0.3. Trunk
+  review (`--trunk`) reviews per commit — a defect spread across several small, individually
+  innocent-looking commits (`wip` → `fix` → `actually fix`) can still slip through; see ADR-025.
 
 ## License
 

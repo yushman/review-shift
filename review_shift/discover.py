@@ -14,9 +14,11 @@ from __future__ import annotations
 import fnmatch
 import re
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+
+from review_shift import gitutil
 
 
 class DiscoverError(RuntimeError):
@@ -194,3 +196,102 @@ def discover(
         selected = selected[:max_branches_per_run]
 
     return DiscoveryResult(selected=selected, skipped=skipped)
+
+
+# --- trunk-review: commits landed directly on the base branch ----------------------------
+
+
+@dataclass
+class TrunkUnit:
+    sha: str
+    diff_too_large: bool = False
+    changed_lines: int | None = None  # informational, set when diff_too_large is True
+
+
+@dataclass
+class TrunkDiscoveryResult:
+    # "units": a valid (possibly empty-after-cap) range was found; "bootstrap": no valid
+    # watermark, nothing reviewed this run; "nothing_new": a valid watermark already equals
+    # (or has no direct commits ahead of) the base head.
+    outcome: str
+    base_head_sha: str
+    anchor_sha: str | None  # the watermark actually used to select `units`; None for bootstrap
+    # Ordered oldest-first, within `max_commits_per_run` -- includes `diff_too_large` entries
+    # in place so batch.py can advance the watermark through them in the right sequence
+    # (design.md D4: the watermark is a single sha and must stay contiguous).
+    units: list[TrunkUnit] = field(default_factory=list)
+    # Commits beyond the cap boundary: never attempted this run, so they never touch the
+    # watermark, distinct from the interleaved `diff_too_large` entries in `units`.
+    skipped: list[dict[str, object]] = field(default_factory=list)
+
+
+def _changed_lines_for_commit(repo_root: Path, sha: str) -> int:
+    """Same counting rule as `_changed_lines`, against the commit's own parent instead of a
+    branch's merge-base (`--ignore-submodules=all` keeps gitlink bumps out; a binary file's
+    `-\t-` counts as zero rather than crashing int())."""
+    out = _run(
+        repo_root,
+        ["show", "--numstat", "--format=", "-M", "--ignore-submodules=all", sha],
+    )
+    total = 0
+    for line in out.splitlines():
+        if not line:
+            continue
+        added, deleted, _path = line.split("\t", 2)
+        if added == "-" or deleted == "-":
+            continue
+        total += int(added) + int(deleted)
+    return total
+
+
+def discover_trunk(
+    repo_root: Path,
+    base: str,
+    watermark: str | None,
+    *,
+    max_commits_per_run: int = 10,
+    max_diff_lines: int = 2000,
+) -> TrunkDiscoveryResult:
+    """Selects the trunk review units for one run (trunk-review spec). The anchor is the
+    persisted watermark, validated with `is_ancestor` before use; an absent or invalidated
+    watermark (history rewritten under it) bootstraps instead of guessing a range
+    (design.md D1/D2)."""
+    base_head_sha = gitutil.rev_parse(repo_root, base)
+
+    anchor_valid = False
+    if watermark:
+        try:
+            anchor_valid = gitutil.is_ancestor(repo_root, watermark, base)
+        except gitutil.GitError:
+            anchor_valid = False  # e.g. the watermark sha no longer resolves at all
+
+    if not anchor_valid:
+        return TrunkDiscoveryResult(
+            outcome="bootstrap", base_head_sha=base_head_sha, anchor_sha=None,
+        )
+    assert watermark is not None  # anchor_valid is only ever True inside `if watermark:` above
+
+    candidates = gitutil.rev_list_direct(repo_root, watermark, base)
+    if not candidates:
+        return TrunkDiscoveryResult(
+            outcome="nothing_new", base_head_sha=base_head_sha, anchor_sha=watermark,
+        )
+
+    skipped: list[dict[str, object]] = []
+    if len(candidates) > max_commits_per_run:
+        for dropped in candidates[max_commits_per_run:]:
+            skipped.append({"sha": dropped, "reason": "max_commits_per_run_cap"})
+        candidates = candidates[:max_commits_per_run]
+
+    units: list[TrunkUnit] = []
+    for sha in candidates:
+        changed = _changed_lines_for_commit(repo_root, sha)
+        if changed > max_diff_lines:
+            units.append(TrunkUnit(sha=sha, diff_too_large=True, changed_lines=changed))
+        else:
+            units.append(TrunkUnit(sha=sha))
+
+    return TrunkDiscoveryResult(
+        outcome="units", base_head_sha=base_head_sha, anchor_sha=watermark,
+        units=units, skipped=skipped,
+    )

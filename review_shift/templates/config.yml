@@ -1,6 +1,6 @@
 # Written by `review-shift init`. Meant to be committed (TDR §7) -- run artifacts under
 # .review-shift/runs/ are excluded separately, via .git/info/exclude, not this file.
-version: 1
+version: 2
 depth: medium                  # low | medium
 base_branch: auto              # auto = origin/HEAD, or an explicit branch name
 
@@ -43,3 +43,10 @@ launchd:
   hour: 3
   minute: 30
   wake_machine: true            # pmset repeat wakeorpoweron, 5 minutes before hour:minute
+
+# Commits landed directly on base_branch, reviewed per commit -- `review-shift run --trunk`.
+# The first run after enabling this reviews nothing (the watermark bootstraps forward); it
+# resumes from there on subsequent nights.
+trunk:
+  enabled: false
+  max_commits_per_run: 10

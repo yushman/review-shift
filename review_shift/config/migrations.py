@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-CURRENT_VERSION = 1
+CURRENT_VERSION = 2
 
 
 class UnrecognizedConfigVersion(RuntimeError):
@@ -23,8 +23,17 @@ def _v0_to_v1(cfg: dict[str, Any]) -> dict[str, Any]:
     return {**cfg, "version": 1}
 
 
+def _v1_to_v2(cfg: dict[str, Any]) -> dict[str, Any]:
+    """Inserts the `trunk` block (trunk-review capability) with its defaults; config-loading
+    spec "Migration adds the trunk block to older configs" — a v1 config that already sets
+    `trunk` (unlikely, since the field didn't exist) keeps its own value."""
+    trunk = {"enabled": False, "max_commits_per_run": 10, **cfg.get("trunk", {})}
+    return {**cfg, "version": 2, "trunk": trunk}
+
+
 MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {
     0: _v0_to_v1,
+    1: _v1_to_v2,
 }
 
 

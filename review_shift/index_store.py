@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-INDEX_SCHEMA_VERSION = 1
+INDEX_SCHEMA_VERSION = 2  # 2: adds the `watermarks` map (trunk-review capability)
 
 
 def compute_idempotency_key(
@@ -19,6 +19,16 @@ def compute_idempotency_key(
     """`idempotency_key = f(head_sha, base_sha, depth, config_hash, prompt_hash)` — NFR-1.
     Every component is part of the digest input; changing any one changes the key."""
     canonical = "\x1f".join([head_sha, base_sha, depth, config_hash, prompt_hash])
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def compute_trunk_idempotency_key(
+    *, commit_sha: str, depth: str, config_hash: str, prompt_hash: str
+) -> str:
+    """`f(commit_sha, depth, config_hash, prompt_hash)` — no `base_sha` (design.md D6). A
+    commit's content is immutable, so this key is stable across the base head advancing, which
+    is what makes bootstrap's re-enumeration (D2) resolve as cache hits instead of a re-pay."""
+    canonical = "\x1f".join([commit_sha, depth, config_hash, prompt_hash])
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
@@ -35,6 +45,22 @@ def write_index_atomic(out_dir: Path, data: dict[str, Any]) -> None:
     tmp = out_dir / f".index.{os.getpid()}.tmp"
     tmp.write_text(json.dumps(data, indent=2))
     os.replace(tmp, path)
+
+
+def read_watermark(index: dict[str, Any], branch: str) -> dict[str, Any] | None:
+    """The trunk anchor for `branch`, or `None` when absent — including an `index.json`
+    written before this change, which has no `watermarks` key at all (run-artifacts spec
+    "Pre-existing index without watermarks"). `None` routes the caller to bootstrap."""
+    watermarks: dict[str, Any] = index.get("watermarks", {})
+    return watermarks.get(branch)
+
+
+def write_watermark(
+    index: dict[str, Any], branch: str, *, sha: str, run_id: str, at: str
+) -> None:
+    """Sets `branch`'s watermark on the in-memory `index` dict; the caller persists it with
+    `write_index_atomic` under the same lock as the rest of the run's index writes."""
+    index.setdefault("watermarks", {})[branch] = {"sha": sha, "run_id": run_id, "at": at}
 
 
 def find_cache_hit(index: dict[str, Any], idempotency_key: str) -> dict[str, Any] | None:

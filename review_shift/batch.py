@@ -13,8 +13,18 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from review_shift import (
+    blame,
+    discover,
+    gitutil,
+    index_store,
+    lock,
+    patch,
+    redact,
+    report,
+    review,
+)
 from review_shift import config as config_module
-from review_shift import gitutil, index_store, lock, patch, redact, report, review
 from review_shift.exitcodes import (
     EXIT_AUTH_OR_QUOTA,
     EXIT_FINDINGS,
@@ -80,7 +90,7 @@ def _write_error_run(
     attempts: int = 1,
 ) -> None:
     run_meta = {
-        "schema_version": 1,
+        "schema_version": 2,
         "run_id": run_id,
         "branch": branch,
         "base": base,
@@ -223,7 +233,7 @@ def _review_branch(
     )
 
     run_meta = {
-        "schema_version": 1,
+        "schema_version": 2,
         "run_id": run_id,
         "branch": branch,
         "base": base,
@@ -300,6 +310,356 @@ def _review_branch(
     )
 
 
+def _write_trunk_error_run(
+    run_dir: Path, run_id: str, base: str, depth: str, started_at: datetime,
+    *, error_type: str, message: str,
+) -> None:
+    run_meta = {
+        "schema_version": 2,
+        "run_id": run_id,
+        "mode": "trunk",
+        "branch": base,
+        "base": base,
+        "depth": depth,
+        "started_at": started_at.isoformat(),
+        "error": {"type": error_type, "last_error": message},
+        "exit_code": EXIT_INTERNAL_ERROR,
+    }
+    (run_dir / "run.json").write_text(json.dumps(run_meta, indent=2))
+
+
+def _review_trunk_target(
+    *,
+    repo_root: Path,
+    base: str,
+    depth: str,
+    model: str,
+    out_dir: Path,
+    exclude_paths: list[str],
+    config_hash: str,
+    prompt_hash: str,
+    index: dict[str, Any],
+    max_commits_per_run: int,
+    budget_usd: float,
+    total_budget_usd: float,
+    soft_timeout_minutes: float | None,
+    hard_timeout_minutes: float | None,
+    auto_fix_min_severity: str,
+    force: bool,
+) -> BranchOutcome:
+    """The trunk target's whole run: one directory, an inner per-unit loop (design.md D8).
+    Mirrors `_review_branch`'s shape (started_at/run_id/run_dir up front, never raises past
+    this function) but the unit is a commit, not the whole target, so most of the bookkeeping
+    happens inside the loop rather than once."""
+    started_at = datetime.now(UTC)
+    run_id = _make_run_id(f"trunk-{base}")
+    run_dir = out_dir / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "patches").mkdir(exist_ok=True)
+
+    watermark_entry = index_store.read_watermark(index, base)
+    watermark_sha = watermark_entry["sha"] if watermark_entry else None
+
+    try:
+        disc = discover.discover_trunk(
+            repo_root, base, watermark_sha, max_commits_per_run=max_commits_per_run,
+        )
+    except (gitutil.GitError, discover.DiscoverError) as exc:
+        _write_trunk_error_run(run_dir, run_id, base, depth, started_at,
+                                error_type="error", message=str(exc))
+        print(f"error: {exc}", file=sys.stderr)
+        return BranchOutcome(branch=base, status="error", run_id=run_id, run_dir=str(run_dir),
+                              exit_code=EXIT_INTERNAL_ERROR, reason=str(exc))
+
+    base_head_sha = disc.base_head_sha
+
+    if disc.outcome == "bootstrap":
+        index_store.write_watermark(
+            index, base, sha=base_head_sha, run_id=run_id, at=started_at.isoformat(),
+        )
+
+    units_meta: list[dict[str, Any]] = [
+        {"sha": s["sha"], "status": "max_commits_per_run_cap"} for s in disc.skipped
+    ]
+    findings_pool: list[dict[str, Any]] = []
+    total_cost = 0.0
+    total_tokens_in = 0
+    total_tokens_out = 0
+    total_secrets_redacted = 0
+    secrets_redacted_files: dict[str, None] = {}
+    any_partial = False
+    model_resolved: str | None = None
+    claude_code_version: str | None = None
+    watermark_advance_sha = watermark_sha
+
+    if disc.outcome == "units":
+        try:
+            review_units = [u for u in disc.units if not u.diff_too_large]
+            diff_cache: dict[str, str] = {}
+            touched_all: set[str] = set()
+            for unit in review_units:
+                diff_text = gitutil.commit_diff(repo_root, unit.sha)
+                diff_cache[unit.sha] = diff_text
+                touched_all |= blame.touched_files(diff_text)
+            blame_index = blame.build_blame_index(repo_root, base_head_sha, touched_all)
+        except gitutil.GitError as exc:
+            _write_trunk_error_run(run_dir, run_id, base, depth, started_at,
+                                    error_type="error", message=str(exc))
+            print(f"error: {exc}", file=sys.stderr)
+            return BranchOutcome(branch=base, status="error", run_id=run_id, run_dir=str(run_dir),
+                                  exit_code=EXIT_INTERNAL_ERROR, reason=str(exc))
+
+        stopped = False
+        for unit in disc.units:
+            if stopped:
+                break
+
+            if unit.diff_too_large:
+                units_meta.append({
+                    "sha": unit.sha, "status": "diff_too_large", "cost_usd": 0.0,
+                    "changed_lines": unit.changed_lines,
+                })
+                watermark_advance_sha = unit.sha
+                continue
+
+            if total_cost >= total_budget_usd:
+                units_meta.append({"sha": unit.sha, "status": "budget_exhausted", "cost_usd": 0.0})
+                stopped = True
+                continue
+
+            touched = blame.touched_files(diff_cache[unit.sha])
+            if touched:
+                outcome = blame.commit_outcome(blame_index, touched, unit.sha)
+                if outcome != "survives":
+                    units_meta.append({"sha": unit.sha, "status": outcome, "cost_usd": 0.0})
+                    watermark_advance_sha = unit.sha
+                    continue
+
+            trunk_key = index_store.compute_trunk_idempotency_key(
+                commit_sha=unit.sha, depth=depth, config_hash=config_hash,
+                prompt_hash=prompt_hash,
+            )
+            if not force:
+                hit = index_store.find_cache_hit(index, trunk_key)
+                if hit is not None:
+                    units_meta.append({
+                        "sha": unit.sha, "status": "cache_hit", "cost_usd": 0.0,
+                        "idempotency_key": trunk_key,
+                    })
+                    watermark_advance_sha = unit.sha
+                    continue
+
+            redaction = redact.redact_diff(diff_cache[unit.sha], exclude_paths)
+            total_secrets_redacted += redaction.secrets_redacted
+            for f in redaction.secrets_redacted_files:
+                secrets_redacted_files[f] = None
+            try:
+                repo_files = gitutil.ls_tree_files(repo_root, unit.sha)
+            except gitutil.GitError as exc:
+                units_meta.append({"sha": unit.sha, "status": "error", "cost_usd": 0.0,
+                                    "error": str(exc)})
+                stopped = True
+                continue
+
+            try:
+                result = review.run_review(
+                    branch=base, base=base, depth=depth, repo_root=repo_root,
+                    diff_text=redaction.diff_text, head_sha=unit.sha, repo_files=repo_files,
+                    model=model, budget_override=budget_usd,
+                    soft_timeout_minutes=soft_timeout_minutes,
+                    hard_timeout_minutes=hard_timeout_minutes,
+                )
+            except review.ReviewTimeout as exc:
+                units_meta.append({"sha": unit.sha, "status": "timeout", "cost_usd": 0.0,
+                                    "error": str(exc)})
+                stopped = True
+                continue
+            except review.ReviewRefused as exc:
+                units_meta.append({"sha": unit.sha, "status": "refused", "cost_usd": 0.0,
+                                    "error": str(exc)})
+                stopped = True
+                continue
+            except review.ReviewInvalid as exc:
+                units_meta.append({"sha": unit.sha, "status": "invalid", "cost_usd": 0.0,
+                                    "error": exc.last_error})
+                stopped = True
+                continue
+
+            total_cost += result.cost_usd
+            total_tokens_in += result.tokens_in
+            total_tokens_out += result.tokens_out
+            any_partial = any_partial or result.partial
+            model_resolved = result.model_resolved
+            claude_code_version = result.claude_code_version
+
+            for finding in result.findings:
+                finding_copy = dict(finding)
+                finding_copy["_reviewed_in_commit"] = unit.sha
+                findings_pool.append(finding_copy)
+
+            index.setdefault("runs", []).append({
+                "run_id": run_id, "unit_sha": unit.sha, "idempotency_key": trunk_key,
+                "status": "ok",
+            })
+            units_meta.append({"sha": unit.sha, "status": "ok", "cost_usd": result.cost_usd})
+            watermark_advance_sha = unit.sha
+
+        if watermark_advance_sha != watermark_sha:
+            assert watermark_advance_sha is not None  # only unit.sha assignments change it
+            index_store.write_watermark(
+                index, base, sha=watermark_advance_sha, run_id=run_id, at=started_at.isoformat(),
+            )
+
+        # design.md D5: attribution and localization both key off one blame index built at the
+        # base head, above -- but only once every unit's raw findings are collected, since
+        # patch.resolve merges all of them and resolves cross-commit overlaps in one pass
+        # (design.md D7's "let existing overlap handling produce conflict").
+        try:
+            localized = patch.resolve(findings_pool, repo_root, base_head_sha)
+
+            remedy_cache: dict[str, str] = {}
+
+            def _remedy_for(commit_sha: str | None) -> str:
+                if commit_sha is None:
+                    return "unknown"
+                if commit_sha not in remedy_cache:
+                    try:
+                        pushed = gitutil.is_ancestor(repo_root, commit_sha, f"origin/{base}")
+                    except gitutil.GitError:
+                        remedy_cache[commit_sha] = "unknown"
+                    else:
+                        remedy_cache[commit_sha] = "pushed" if pushed else "still_local"
+                return remedy_cache[commit_sha]
+
+            for lf in localized:
+                reviewed_in = lf.finding.pop("_reviewed_in_commit", None)
+                commit_sha = None
+                author = None
+                if lf.status == "applicable":
+                    assert lf.match_start is not None
+                    commit_sha, author = blame_index.attribute(
+                        lf.finding["file"], lf.match_start + 1
+                    )
+                commit_sha = commit_sha or reviewed_in
+                if author is None and commit_sha is not None:
+                    author = blame_index.authors.get(commit_sha)
+                lf.finding["commit"] = commit_sha
+                lf.finding["author"] = author
+                lf.finding["remedy"] = _remedy_for(commit_sha)
+
+            threshold_rank = patch.SEVERITY_RANK[auto_fix_min_severity]
+            all_applicable = [lf for lf in localized if lf.status == "applicable"]
+            auto_fix_applicable = [
+                lf for lf in all_applicable
+                if patch.SEVERITY_RANK[lf.finding["severity"]] >= threshold_rank
+            ]
+            all_diff, all_err = patch.generate_and_verify(
+                all_applicable, repo_root, base_head_sha, f"{run_id}-all"
+            )
+            auto_fix_diff, auto_fix_err = patch.generate_and_verify(
+                auto_fix_applicable, repo_root, base_head_sha, f"{run_id}-auto-fix"
+            )
+        except (gitutil.GitError, patch.PatchError) as exc:
+            _write_trunk_error_run(run_dir, run_id, base, depth, started_at,
+                                    error_type="patch_build_failed", message=str(exc))
+            print(f"error: {exc}", file=sys.stderr)
+            return BranchOutcome(branch=base, status="error", run_id=run_id, run_dir=str(run_dir),
+                                  exit_code=EXIT_INTERNAL_ERROR, cost_usd=total_cost,
+                                  reason=str(exc))
+    else:
+        localized = []
+        all_diff = auto_fix_diff = None
+        all_err = auto_fix_err = None
+        threshold_rank = patch.SEVERITY_RANK[auto_fix_min_severity]
+
+    patch_error = all_err or auto_fix_err
+    auto_fix_patch_path = None
+    if auto_fix_diff:
+        auto_fix_patch_path = run_dir / "patches" / "auto_fixed.patch"
+        auto_fix_patch_path.write_text(auto_fix_diff)
+    if all_diff:
+        (run_dir / "patches" / "all.patch").write_text(all_diff)
+
+    findings_by_severity = {sev: 0 for sev in SEVERITIES}
+    for lf in localized:
+        findings_by_severity[lf.finding["severity"]] += 1
+    findings_without_patch = sum(1 for lf in localized if lf.status != "applicable")
+
+    duration_ms = int((datetime.now(UTC) - started_at).total_seconds() * 1000)
+
+    reviewed_count = sum(1 for u in units_meta if u["status"] in ("ok", "cache_hit"))
+    skipped_count = sum(
+        1 for u in units_meta
+        if u["status"] in ("superseded", "removed", "max_commits_per_run_cap")
+    )
+    gapped_count = sum(1 for u in units_meta if u["status"] == "diff_too_large")
+
+    run_meta = {
+        "schema_version": 2,
+        "run_id": run_id,
+        "mode": "trunk",
+        "branch": base,
+        "base": base,
+        "anchor_sha": disc.anchor_sha,
+        "head_sha": base_head_sha,
+        "depth": depth,
+        "model_resolved": model_resolved,
+        "claude_code_version": claude_code_version,
+        "prompt_hash": prompt_hash,
+        "config_hash": config_hash,
+        "started_at": started_at.isoformat(),
+        "duration_ms": duration_ms,
+        "tokens_in": total_tokens_in,
+        "tokens_out": total_tokens_out,
+        "cost_usd": total_cost,
+        "findings_count": len(localized),
+        "findings_by_severity": findings_by_severity,
+        "findings_without_patch": findings_without_patch,
+        "secrets_redacted": total_secrets_redacted,
+        "secrets_redacted_files": list(secrets_redacted_files),
+        "partial": any_partial,
+        "trunk_outcome": disc.outcome,
+        "units": units_meta,
+        "reviewed_count": reviewed_count,
+        "skipped_count": skipped_count,
+        "gapped_count": gapped_count,
+        "skipped": [],
+        "exit_code": EXIT_OK,
+        "patch_error": patch_error,
+        "auto_fix_min_severity": auto_fix_min_severity,
+        "auto_fix_patch_path": (
+            _relative_or_absolute(auto_fix_patch_path, repo_root) if auto_fix_patch_path else None
+        ),
+        "cache_hit": False,
+    }
+
+    findings_out = []
+    for lf in localized:
+        entry = dict(lf.finding)
+        entry["status"] = lf.status
+        findings_out.append(entry)
+    (run_dir / "findings.json").write_text(
+        json.dumps({"schema_version": 1, "findings": findings_out}, indent=2)
+    )
+
+    has_auto_fix_worthy = any(
+        patch.SEVERITY_RANK[lf.finding["severity"]] >= threshold_rank for lf in localized
+    )
+    exit_code = EXIT_FINDINGS if has_auto_fix_worthy else EXIT_OK
+    run_meta["exit_code"] = exit_code
+    (run_dir / "run.json").write_text(json.dumps(run_meta, indent=2))
+
+    report_text = report.render(run_meta, localized)
+    (run_dir / "report.md").write_text(report_text)
+
+    print(str(run_dir))
+
+    return BranchOutcome(
+        branch=base, status="ok", run_id=run_id, run_dir=str(run_dir), exit_code=exit_code,
+        cost_usd=total_cost, findings_by_severity=findings_by_severity, index_entry=None,
+    )
+
+
 def _aggregate_exit_code(outcomes: list[BranchOutcome], exit_zero_on_findings: bool) -> int:
     """batch-execution spec "Batch exit codes": 2 if every attempted branch failed, 1 if any
     successful branch cleared `patch.auto_fix_min_severity` (collapsible via
@@ -372,10 +732,13 @@ def run_batch(
     discovery_skipped: list[dict[str, Any]],
     force: bool,
     exit_zero_on_findings: bool,
+    trunk: bool = False,
 ) -> int:
     """The whole batch under one lock (ADR-007's "held for the entire batch, including
     index.json and latest writes" — not re-acquired per branch, per design.md's decision).
-    A single `--branch` run is a batch of one."""
+    A single `--branch` run is a batch of one; `trunk=True` is a batch of one too, its single
+    "branch" being the trunk target's own multi-commit run (design.md D8, `branch-discovery`
+    spec "the two paths SHALL NOT be combined for one ref") -- `branches` is ignored."""
     runtime = loaded.data["runtime"]
     budget_usd = runtime["budget_usd"]
     total_budget_usd = runtime["total_budget_usd"]
@@ -416,6 +779,37 @@ def run_batch(
             prompt_hash = review.prompt_template_hash(depth)
             outcomes: list[BranchOutcome] = []
             total_cost = 0.0
+
+            if trunk:
+                trunk_cfg = loaded.data["trunk"]
+                outcome = _review_trunk_target(
+                    repo_root=repo_root, base=base, depth=depth, model=model, out_dir=out_dir,
+                    exclude_paths=exclude_paths, config_hash=config_hash,
+                    prompt_hash=prompt_hash, index=index,
+                    max_commits_per_run=trunk_cfg["max_commits_per_run"],
+                    budget_usd=budget_usd, total_budget_usd=total_budget_usd,
+                    soft_timeout_minutes=soft_timeout_minutes,
+                    hard_timeout_minutes=hard_timeout_minutes,
+                    auto_fix_min_severity=auto_fix_min_severity, force=force,
+                )
+                outcomes.append(outcome)
+                total_cost += outcome.cost_usd
+
+                index_store.write_index_atomic(out_dir, index)
+
+                successful_run_dirs = [
+                    o.run_dir for o in outcomes if o.status in SUCCESS_STATUSES and o.run_dir
+                ]
+                if successful_run_dirs:
+                    index_store.swap_latest(out_dir, Path(successful_run_dirs[-1]).name)
+
+                exit_code = _aggregate_exit_code(outcomes, exit_zero_on_findings)
+                _write_batch_summary(
+                    out_dir, base, batch_id=batch_id, started_at=batch_started_at,
+                    outcomes=outcomes, discovery_skipped=discovery_skipped, auth_status="ok",
+                    exit_code=exit_code, total_cost_usd=total_cost,
+                )
+                return exit_code
 
             for branch in branches:
                 if total_cost >= total_budget_usd:

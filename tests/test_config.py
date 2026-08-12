@@ -16,7 +16,7 @@ def _write(path: Path, text: str) -> None:
 
 
 MINIMAL_YAML = """
-version: 1
+version: 2
 depth: medium
 discovery:
   patterns: ["feature/*"]
@@ -29,7 +29,7 @@ def test_loads_minimal_config(tmp_path: Path):
 
     loaded = config.load_config(tmp_path)
 
-    assert loaded.data["version"] == 1
+    assert loaded.data["version"] == 2
     assert loaded.data["depth"] == "medium"
     assert loaded.data["discovery"]["patterns"] == ["feature/*"]
     # defaults filled in for everything the file omitted
@@ -40,7 +40,7 @@ def test_loads_minimal_config(tmp_path: Path):
 
 def test_missing_config_file_uses_all_defaults(tmp_path: Path):
     loaded = config.load_config(tmp_path)
-    assert loaded.data["version"] == 1
+    assert loaded.data["version"] == 2
     assert loaded.data["depth"] == "medium"
     assert loaded.data["discovery"]["patterns"] == []
     assert loaded.data["discovery"]["discover_all"] is False
@@ -102,6 +102,39 @@ def test_patch_auto_fix_min_severity_rejects_value_outside_enum(tmp_path: Path):
         config.load_config(tmp_path)
 
 
+# --- config-loading spec: "Trunk configuration block" --------------------------------------
+
+
+def test_trunk_block_omitted_resolves_to_defaults(tmp_path: Path):
+    loaded = config.load_config(tmp_path)
+    assert loaded.data["trunk"]["enabled"] is False
+    assert loaded.data["trunk"]["max_commits_per_run"] == 10
+
+
+def test_trunk_unknown_field_fails_loudly(tmp_path: Path):
+    cfg_path = tmp_path / ".review-shift" / "config.yml"
+    _write(cfg_path, "version: 2\ntrunk:\n  max_commits: 5\n")
+
+    with pytest.raises(config.ConfigValidationError, match="max_commits"):
+        config.load_config(tmp_path)
+
+
+def test_trunk_max_commits_per_run_participates_in_config_hash(tmp_path: Path):
+    loaded_default = config.load_config(tmp_path)
+    loaded_override = config.load_config(
+        tmp_path, cli_overrides={"trunk": {"max_commits_per_run": 5}}
+    )
+    assert loaded_default.config_hash != loaded_override.config_hash
+
+
+def test_trunk_enabled_can_be_set_via_config(tmp_path: Path):
+    cfg_path = tmp_path / ".review-shift" / "config.yml"
+    _write(cfg_path, "version: 2\ntrunk:\n  enabled: true\n  max_commits_per_run: 3\n")
+    loaded = config.load_config(tmp_path)
+    assert loaded.data["trunk"]["enabled"] is True
+    assert loaded.data["trunk"]["max_commits_per_run"] == 3
+
+
 def test_cli_flag_overrides_file_value(tmp_path: Path):
     cfg_path = tmp_path / ".review-shift" / "config.yml"
     _write(cfg_path, "version: 1\ndepth: low\n")
@@ -153,7 +186,7 @@ def test_old_version_migrates_in_memory_without_touching_disk(tmp_path: Path):
 
     loaded = config.load_config(tmp_path)
 
-    assert loaded.data["version"] == 1
+    assert loaded.data["version"] == 2
     assert loaded.migrated is True
     assert cfg_path.read_text() == original_text  # untouched on disk
 
@@ -167,28 +200,53 @@ def test_unrecognized_version_fails_loudly(tmp_path: Path):
 
 
 def test_current_version_is_not_reported_as_migrated(tmp_path: Path):
-    _write(tmp_path / ".review-shift" / "config.yml", "version: 1\n")
+    _write(tmp_path / ".review-shift" / "config.yml", "version: 2\n")
     loaded = config.load_config(tmp_path)
     assert loaded.migrated is False
+
+
+# --- config-loading spec: "Migration adds the trunk block to older configs" ---------------
+
+
+def test_v1_config_migrates_to_v2_with_trunk_defaults_without_touching_disk(tmp_path: Path):
+    cfg_path = tmp_path / ".review-shift" / "config.yml"
+    original_text = "version: 1\ndepth: medium\n"  # pre-trunk config, no `trunk` block
+    _write(cfg_path, original_text)
+
+    loaded = config.load_config(tmp_path)
+
+    assert loaded.data["version"] == 2
+    assert loaded.migrated is True
+    assert loaded.data["trunk"] == {"enabled": False, "max_commits_per_run": 10}
+    assert cfg_path.read_text() == original_text  # untouched on disk
 
 
 # --- migrations.py scaffold, unit-level -----------------------------------------------
 
 
-def test_migrate_unversioned_to_v1():
+def test_migrate_unversioned_to_current():
     from review_shift.config import migrations
 
     migrated, was_migrated = migrations.migrate({"depth": "medium"})
-    assert migrated["version"] == 1
+    assert migrated["version"] == 2
     assert was_migrated is True
+
+
+def test_migrate_v1_to_v2_inserts_trunk_defaults():
+    from review_shift.config import migrations
+
+    migrated, was_migrated = migrations.migrate({"version": 1, "depth": "medium"})
+    assert was_migrated is True
+    assert migrated["version"] == 2
+    assert migrated["trunk"] == {"enabled": False, "max_commits_per_run": 10}
 
 
 def test_migrate_current_version_is_noop():
     from review_shift.config import migrations
 
-    migrated, was_migrated = migrations.migrate({"version": 1, "depth": "medium"})
+    migrated, was_migrated = migrations.migrate({"version": 2, "depth": "medium"})
     assert was_migrated is False
-    assert migrated == {"version": 1, "depth": "medium"}
+    assert migrated == {"version": 2, "depth": "medium"}
 
 
 def test_migrate_unrecognized_version_raises():

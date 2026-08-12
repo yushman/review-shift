@@ -14,7 +14,7 @@ import jsonschema
 import yaml
 
 from review_shift.config import migrations
-from review_shift.config.schema import DEFAULTS, ENV_VAR_PATHS, SCHEMA_V1
+from review_shift.config.schema import DEFAULTS, ENV_VAR_PATHS, SCHEMA_V2
 
 __all__ = ["ConfigError", "ConfigValidationError", "LoadedConfig", "load_config"]
 
@@ -86,7 +86,7 @@ def _coerce_env_value(raw: str, schema_type: dict[str, Any]) -> Any:
 
 
 def _schema_for_path(path: tuple[str, ...]) -> dict[str, Any]:
-    node = SCHEMA_V1
+    node = SCHEMA_V2
     for part in path:
         node = node["properties"][part]
     return node
@@ -133,7 +133,7 @@ def load_config(
         merged = _deep_merge(merged, cli_overrides)
 
     try:
-        jsonschema.validate(merged, SCHEMA_V1)
+        jsonschema.validate(merged, SCHEMA_V2)
     except jsonschema.ValidationError as exc:
         raise ConfigValidationError(f"{path or '<no config file>'}: {exc.message}") from exc
 

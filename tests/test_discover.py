@@ -219,3 +219,111 @@ def test_unrelated_git_error_is_not_swallowed(tmp_path: Path):
     not_a_repo.mkdir()
     with pytest.raises(discover.DiscoverError):
         discover.discover(not_a_repo, "main", discover_all=True)
+
+
+# --- discover_trunk (trunk-review spec) ---------------------------------------------------
+
+
+def _rev(repo: Path, ref: str) -> str:
+    return _git_out(repo, "rev-parse", ref)
+
+
+@pytest.fixture
+def trunk_repo(tmp_path: Path) -> Path:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    _git(repo, "config", "user.email", "test@example.com")
+    _git(repo, "config", "user.name", "test")
+    (repo / "f.txt").write_text("base\n")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", "c0")
+    _git(repo, "branch", "-m", "main")
+    return repo
+
+
+def _direct_commit(repo: Path, content: str, message: str) -> str:
+    (repo / "f.txt").write_text(content)
+    _git(repo, "commit", "-q", "-am", message)
+    return _rev(repo, "HEAD")
+
+
+def test_discover_trunk_bootstrap_when_no_watermark(trunk_repo: Path):
+    _direct_commit(trunk_repo, "v1\n", "c1")
+    result = discover.discover_trunk(trunk_repo, "main", None)
+    assert result.outcome == "bootstrap"
+    assert result.anchor_sha is None
+    assert result.units == []
+    assert result.base_head_sha == _rev(trunk_repo, "main")
+
+
+def test_discover_trunk_bootstrap_when_watermark_invalidated_by_rewrite(trunk_repo: Path):
+    c1 = _direct_commit(trunk_repo, "v1\n", "c1")
+    _git(trunk_repo, "commit", "-q", "--amend", "-m", "c1 rewritten")
+
+    result = discover.discover_trunk(trunk_repo, "main", c1)
+    assert result.outcome == "bootstrap"
+    assert result.units == []
+
+
+def test_discover_trunk_nothing_new_when_watermark_equals_head(trunk_repo: Path):
+    c1 = _direct_commit(trunk_repo, "v1\n", "c1")
+    result = discover.discover_trunk(trunk_repo, "main", c1)
+    assert result.outcome == "nothing_new"
+    assert result.units == []
+    assert result.anchor_sha == c1
+
+
+def test_discover_trunk_excludes_merged_branch_commits(trunk_repo: Path):
+    anchor = _rev(trunk_repo, "main")
+    _git(trunk_repo, "checkout", "-q", "-b", "feature")
+    (trunk_repo / "g.txt").write_text("feature\n")
+    _git(trunk_repo, "add", ".")
+    _git(trunk_repo, "commit", "-q", "-m", "feature work")
+    _git(trunk_repo, "checkout", "-q", "main")
+    _git(trunk_repo, "merge", "-q", "--no-ff", "feature", "-m", "merge feature")
+    direct = _direct_commit(trunk_repo, "direct\n", "direct commit")
+
+    result = discover.discover_trunk(trunk_repo, "main", anchor)
+    assert result.outcome == "units"
+    assert [u.sha for u in result.units] == [direct]
+
+
+def test_discover_trunk_units_are_oldest_first(trunk_repo: Path):
+    anchor = _rev(trunk_repo, "main")
+    c1 = _direct_commit(trunk_repo, "v1\n", "c1")
+    c2 = _direct_commit(trunk_repo, "v2\n", "c2")
+    c3 = _direct_commit(trunk_repo, "v3\n", "c3")
+
+    result = discover.discover_trunk(trunk_repo, "main", anchor)
+    assert [u.sha for u in result.units] == [c1, c2, c3]
+
+
+def test_discover_trunk_cap_boundary_records_reason_and_stops_units(trunk_repo: Path):
+    anchor = _rev(trunk_repo, "main")
+    shas = [_direct_commit(trunk_repo, f"v{i}\n", f"c{i}") for i in range(5)]
+
+    result = discover.discover_trunk(trunk_repo, "main", anchor, max_commits_per_run=2)
+    assert [u.sha for u in result.units] == shas[:2]
+    capped = [s for s in result.skipped if s["reason"] == "max_commits_per_run_cap"]
+    assert {s["sha"] for s in capped} == set(shas[2:])
+
+
+def test_discover_trunk_oversized_commit_is_marked_diff_too_large(trunk_repo: Path):
+    anchor = _rev(trunk_repo, "main")
+    big = "\n".join(f"line {i}" for i in range(3000))
+    (trunk_repo / "big.txt").write_text(big)
+    _git(trunk_repo, "add", ".")
+    _git(trunk_repo, "commit", "-q", "-m", "huge change")
+    huge_sha = _rev(trunk_repo, "HEAD")
+    small_sha = _direct_commit(trunk_repo, "v1\n", "small change")
+
+    result = discover.discover_trunk(trunk_repo, "main", anchor, max_diff_lines=2000)
+    assert result.outcome == "units"
+    by_sha = {u.sha: u for u in result.units}
+    assert by_sha[huge_sha].diff_too_large is True
+    assert by_sha[small_sha].diff_too_large is False
+    # oversized commits stay in the ordered `units` sequence (not `skipped`) so the watermark
+    # can advance through them in order (design.md D4) -- they're a coverage gap, not a cap drop
+    assert [u.sha for u in result.units] == [huge_sha, small_sha]
+    assert result.skipped == []

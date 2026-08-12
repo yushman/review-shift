@@ -136,3 +136,63 @@ def test_run_with_no_branch_records_skip_reasons_in_reviewed_branch_report(
     report_text = (run_dirs[0] / "report.md").read_text()
     assert "orphan-branch" in report_text
     assert "no_merge_base" in report_text
+
+
+# --- branch-discovery spec: "Naming the base branch as a branch target is an error" -------
+
+
+def test_branch_equal_to_resolved_base_is_a_loud_error(branched_repo: Path, tmp_path: Path):
+    out_dir = tmp_path / "runs"
+    argv = ["run", "--branch", "main", "--base", "main", "--repo", str(branched_repo),
+            "--out-dir", str(out_dir)]
+    exit_code = cli.main(argv)
+    assert exit_code != 0
+    assert not out_dir.exists() or list(out_dir.iterdir()) == []
+
+
+def test_branch_equal_to_base_resolved_from_auto_config_is_also_an_error(tmp_path: Path):
+    """base_branch: auto -> origin/HEAD -> main; passing --branch main must be caught against
+    the *resolved* base, not the literal `auto` config value."""
+    upstream = tmp_path / "upstream"
+    upstream.mkdir()
+    _git(upstream, "init", "-q")
+    _git(upstream, "config", "user.email", "test@example.com")
+    _git(upstream, "config", "user.name", "test")
+    (upstream / "f.txt").write_text("one\n")
+    _git(upstream, "add", ".")
+    _git(upstream, "commit", "-q", "-m", "initial")
+    _git(upstream, "branch", "-m", "main")
+
+    repo = tmp_path / "repo"
+    _git(tmp_path, "clone", "-q", str(upstream), str(repo))
+
+    out_dir = tmp_path / "runs"
+    argv = ["run", "--branch", "main", "--repo", str(repo), "--out-dir", str(out_dir)]
+    exit_code = cli.main(argv)
+    assert exit_code != 0
+    assert not out_dir.exists() or list(out_dir.iterdir()) == []
+
+
+def test_explicit_branch_wins_over_trunk_enabled_in_config(
+    branched_repo: Path, tmp_path: Path
+):
+    """config-loading spec "CLI flag overrides file value": `trunk.enabled: true` in config
+    must not silently swallow an explicit `--branch <name>` naming a real branch other than
+    the base -- the flag is more specific and wins, same as any other flag-over-config case."""
+    config_dir = branched_repo / ".review-shift"
+    config_dir.mkdir()
+    (config_dir / "config.yml").write_text("version: 2\ntrunk:\n  enabled: true\n")
+
+    out_dir = tmp_path / "runs"
+    argv = ["run", "--branch", "feature/x", "--base", "main", "--repo", str(branched_repo),
+            "--out-dir", str(out_dir)]
+    mock_events = (_fake_claude_events(), False)
+    with mock_patch("review_shift.review._invoke_with_timeout", return_value=mock_events):
+        exit_code = cli.main(argv)
+
+    assert exit_code == 0
+    run_dirs = _run_dirs(out_dir)
+    assert len(run_dirs) == 1
+    run_meta = json.loads((run_dirs[0] / "run.json").read_text())
+    assert run_meta.get("mode") != "trunk"
+    assert run_meta["branch"] == "feature/x"

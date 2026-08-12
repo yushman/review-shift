@@ -5,13 +5,13 @@ from __future__ import annotations
 
 from typing import Any
 
-SCHEMA_V1: dict[str, Any] = {
+SCHEMA_V2: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
     "additionalProperties": False,
     "required": ["version"],
     "properties": {
-        "version": {"const": 1},
+        "version": {"const": 2},
         "depth": {"enum": ["low", "medium", "high"]},
         "base_branch": {"type": "string"},
         "discovery": {
@@ -74,10 +74,18 @@ SCHEMA_V1: dict[str, Any] = {
                 },
             },
         },
+        "trunk": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "enabled": {"type": "boolean"},
+                "max_commits_per_run": {"type": "integer", "exclusiveMinimum": 0},
+            },
+        },
     },
 }
 
-# Mirrors SCHEMA_V1's shape exactly (TDR §7's documented defaults) so a value's source (file,
+# Mirrors SCHEMA_V2's shape exactly (TDR §7's documented defaults) so a value's source (file,
 # env, flag, or built-in default) never changes the merged result — required for config_hash
 # to be stable across equivalent configs (config-loading spec, "Same effective config").
 DEFAULTS: dict[str, Any] = {
@@ -118,6 +126,10 @@ DEFAULTS: dict[str, Any] = {
     },
     "patch": {
         "auto_fix_min_severity": "high",
+    },
+    "trunk": {
+        "enabled": False,
+        "max_commits_per_run": 10,
     },
 }
 

@@ -55,7 +55,7 @@ def test_idempotency_key_changes_when_prompt_hash_changes():
 
 def test_load_index_on_missing_file_returns_empty_index(tmp_path: Path):
     idx = index_store.load_index(tmp_path)
-    assert idx == {"schema_version": 1, "runs": []}
+    assert idx == {"schema_version": 2, "runs": []}
 
 
 def test_write_index_atomic_then_load_roundtrips(tmp_path: Path):
@@ -116,3 +116,63 @@ def test_write_index_atomic_leaves_valid_json_even_if_called_repeatedly(tmp_path
         index_store.write_index_atomic(tmp_path, data)
     final = json.loads((tmp_path / "index.json").read_text())
     assert final["runs"] == [{"run_id": "4"}]
+
+
+# --- trunk-review: watermark persistence and idempotency key ------------------------------
+
+
+def test_read_watermark_absent_reads_as_none(tmp_path: Path):
+    index = index_store.load_index(tmp_path)
+    assert index_store.read_watermark(index, "main") is None
+
+
+def test_write_watermark_then_read_roundtrips(tmp_path: Path):
+    index = index_store.load_index(tmp_path)
+    index_store.write_watermark(index, "main", sha="a" * 40, run_id="r1", at="2026-08-11T03:30:00Z")
+    assert index_store.read_watermark(index, "main") == {
+        "sha": "a" * 40, "run_id": "r1", "at": "2026-08-11T03:30:00Z",
+    }
+
+
+def test_watermark_survives_atomic_write_and_reload(tmp_path: Path):
+    index = index_store.load_index(tmp_path)
+    index_store.write_watermark(index, "main", sha="a" * 40, run_id="r1", at="2026-08-11T03:30:00Z")
+    index_store.write_index_atomic(tmp_path, index)
+
+    reloaded = index_store.load_index(tmp_path)
+    assert index_store.read_watermark(reloaded, "main") == {
+        "sha": "a" * 40, "run_id": "r1", "at": "2026-08-11T03:30:00Z",
+    }
+
+
+def test_pre_existing_index_without_watermarks_key_reads_as_absent(tmp_path: Path):
+    index_store.write_index_atomic(tmp_path, {"schema_version": 1, "runs": []})
+    reloaded = index_store.load_index(tmp_path)
+    assert index_store.read_watermark(reloaded, "main") is None
+
+
+def test_trunk_idempotency_key_is_stable_for_same_inputs():
+    args = dict(commit_sha="a" * 40, depth="medium", config_hash="c" * 64, prompt_hash="d" * 64)
+    k1 = index_store.compute_trunk_idempotency_key(**args)
+    k2 = index_store.compute_trunk_idempotency_key(**args)
+    assert k1 == k2
+
+
+def test_trunk_idempotency_key_changes_when_commit_sha_changes():
+    args = dict(commit_sha="a" * 40, depth="medium", config_hash="c" * 64, prompt_hash="d" * 64)
+    k1 = index_store.compute_trunk_idempotency_key(**args)
+    changed = dict(args, commit_sha="e" * 40)
+    assert index_store.compute_trunk_idempotency_key(**changed) != k1
+
+
+def test_trunk_idempotency_key_unchanged_when_base_head_advances():
+    """The trunk key takes no `base_sha` at all (design.md D6) — a commit reviewed under one
+    base head and re-enumerated after the base head has since advanced must produce the exact
+    same key, unlike the branch key which depends on `base_sha`."""
+    args = dict(commit_sha="a" * 40, depth="medium", config_hash="c" * 64, prompt_hash="d" * 64)
+    key_before = index_store.compute_trunk_idempotency_key(**args)
+    # "base head advanced" is simply not a parameter this function accepts -- recomputing with
+    # the same commit/depth/config/prompt after any number of new base-branch commits is the
+    # same call.
+    key_after = index_store.compute_trunk_idempotency_key(**args)
+    assert key_before == key_after

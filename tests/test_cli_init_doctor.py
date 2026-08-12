@@ -47,7 +47,7 @@ def test_init_writes_config_and_git_exclude(repo: Path):
     config_path = repo / ".review-shift" / "config.yml"
     assert config_path.exists()
     loaded = yaml.safe_load(config_path.read_text())
-    assert loaded["version"] == 1
+    assert loaded["version"] == 2
 
     exclude = (repo / ".git" / "info" / "exclude").read_text()
     assert ".review-shift/runs/" in exclude

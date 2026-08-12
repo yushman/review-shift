@@ -73,6 +73,43 @@ def cmd_run(args: argparse.Namespace) -> int:
         args.exit_zero_on_findings or loaded.data["runtime"]["exit_zero_on_findings"]
     )
 
+    # branch-discovery spec "Naming the base branch as a branch target is an error": the
+    # comparison is against the *resolved* base, so `base_branch: auto` -> origin/HEAD is
+    # caught too, not just a literal config match. Checked before any run directory or
+    # `latest` write -- `git diff --merge-base main main` is empty by definition, and letting
+    # that through used to look like a completed, clean review (CLAUDE.md's silent-bug class).
+    if args.branch is not None and args.branch == base:
+        print(
+            f"error: --branch {args.branch!r} is the resolved base branch; "
+            "review commits landed directly on it with --trunk instead",
+            file=sys.stderr,
+        )
+        return EXIT_INTERNAL_ERROR
+
+    # cli-surface spec "--trunk selects the trunk target": the flag ORs with `trunk.enabled`
+    # (same override pattern as --exit-zero-on-findings above) and, when set, replaces branch
+    # discovery entirely rather than combining with it. But an explicit `--branch <name>`
+    # names a concrete branch review target -- config-loading spec "CLI flag overrides file
+    # value" means `trunk.enabled: true` in config must not silently swallow it. An explicit
+    # `--trunk` flag is itself the more specific request and still wins even with --branch set.
+    trunk_mode = args.trunk or (loaded.data["trunk"]["enabled"] and args.branch is None)
+
+    if trunk_mode:
+        return batch.run_batch(
+            repo_root=repo_root,
+            out_dir=out_dir,
+            branches=[],
+            base=base,
+            depth=args.depth,
+            model=args.model,
+            loaded=loaded,
+            exclude_paths=exclude_paths,
+            discovery_skipped=[],
+            force=args.force,
+            exit_zero_on_findings=exit_zero_on_findings,
+            trunk=True,
+        )
+
     if args.branch:
         branches = [args.branch]
         discovery_skipped: list[dict[str, Any]] = []
@@ -250,6 +287,12 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.add_argument(
         "--force", action="store_true",
         help="bypass the idempotency cache for every branch in this run",
+    )
+    run_p.add_argument(
+        "--trunk", action="store_true",
+        help="review commits landed directly on the resolved base branch instead of "
+        "discovering branches (overrides trunk.enabled from config; the two targets are "
+        "never combined in one run)",
     )
     run_p.add_argument(
         "--exit-zero-on-findings", action="store_true",
