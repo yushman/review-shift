@@ -84,6 +84,48 @@ def test_run_writes_full_run_directory(branched_repo: Path, tmp_path: Path):
     assert check.returncode == 0, check.stderr
 
 
+def test_depth_high_from_config_file_alone_reaches_build_command(
+    branched_repo: Path, tmp_path: Path
+):
+    """add-depth-high task 1.6: `depth: high` set only in config.yml, no `--depth` flag, used
+    to pass schema validation and then fail once it reached `build_command` (the CLI flag's
+    hardcoded default silently won). This pins that the config value now takes effect."""
+    config_dir = branched_repo / ".review-shift"
+    config_dir.mkdir()
+    (config_dir / "config.yml").write_text("version: 1\ndepth: high\n")
+
+    structured_output = {
+        "schema_version": 1,
+        "findings": [
+            {"file": "src/bar.py", "line": 1, "severity": "low", "category": "style",
+             "rationale": "minor"},
+        ],
+    }
+    out_dir = tmp_path / "runs"
+    argv = ["run", "--branch", "feature/x", "--base", "main",
+            "--repo", str(branched_repo), "--out-dir", str(out_dir)]
+
+    captured_cmds = []
+
+    def _side_effect(cmd, soft_timeout_s, hard_timeout_s):
+        captured_cmds.append(cmd)
+        return _fake_claude_events(structured_output), False
+
+    with mock_patch("review_shift.review._invoke_with_timeout", side_effect=_side_effect):
+        exit_code = cli.main(argv)
+
+    assert exit_code == 0
+    assert len(captured_cmds) == 1
+    cmd = captured_cmds[0]
+    assert cmd[cmd.index("--effort") + 1] == "high"
+    prompt = cmd[2]
+    assert "review-shift — depth: high" in prompt
+
+    run_dirs = _run_dirs(out_dir)
+    run_meta = json.loads((run_dirs[0] / "run.json").read_text())
+    assert run_meta["depth"] == "high"
+
+
 def test_run_with_no_findings_exits_zero(branched_repo: Path, tmp_path: Path):
     structured_output = {"schema_version": 1, "findings": []}
     # empty findings against a non-empty diff triggers a retry per ADR-011; give it 3 empties

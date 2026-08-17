@@ -59,6 +59,11 @@ def cmd_run(args: argparse.Namespace) -> int:
         return EXIT_INTERNAL_ERROR
     exclude_paths = redact.merge_exclude_paths(loaded.data["scope"]["exclude_paths"])
 
+    # --depth is an explicit override, same pattern as --base below; omitted, the effective
+    # depth comes from config (config-loading spec "CLI flag overrides file value") -- this is
+    # also what lets `depth: high` set only in config.yml take effect (add-depth-high).
+    depth = args.depth if args.depth is not None else loaded.data["depth"]
+
     # `--base` is an explicit override; omitted, the effective base_branch comes from config
     # (default "auto"), which resolves to origin/HEAD (batch-execution spec "base_branch:
     # auto resolves to origin/HEAD", TDR FR-3). An explicit "auto" (from either source) is
@@ -101,7 +106,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             out_dir=out_dir,
             branches=[],
             base=base,
-            depth=args.depth,
+            depth=depth,
             model=args.model,
             loaded=loaded,
             exclude_paths=exclude_paths,
@@ -132,7 +137,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         out_dir=out_dir,
         branches=branches,
         base=base,
-        depth=args.depth,
+        depth=depth,
         model=args.model,
         loaded=loaded,
         exclude_paths=exclude_paths,
@@ -275,7 +280,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="base branch (default: config's base_branch, itself defaulting to auto -> "
         "origin/HEAD)",
     )
-    run_p.add_argument("--depth", choices=["low", "medium"], default="medium")
+    run_p.add_argument("--depth", choices=["low", "medium", "high"], default=None)
     run_p.add_argument("--model", default="sonnet")
     run_p.add_argument("--repo", default=None, help="repo root (default: cwd)")
     run_p.add_argument(

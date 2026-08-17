@@ -127,6 +127,17 @@ def test_trunk_max_commits_per_run_participates_in_config_hash(tmp_path: Path):
     assert loaded_default.config_hash != loaded_override.config_hash
 
 
+def test_full_file_review_participates_in_config_hash(tmp_path: Path):
+    """add-depth-high design.md D2's "idempotency check": `scope.full_file_review` has never
+    had a live consumer before this change, but `_config_hash` already hashes the whole merged
+    config, so changing it was already invalidating the cache incidentally. This pins that."""
+    loaded_default = config.load_config(tmp_path)
+    loaded_override = config.load_config(
+        tmp_path, cli_overrides={"scope": {"full_file_review": "never"}}
+    )
+    assert loaded_default.config_hash != loaded_override.config_hash
+
+
 def test_trunk_enabled_can_be_set_via_config(tmp_path: Path):
     cfg_path = tmp_path / ".review-shift" / "config.yml"
     _write(cfg_path, "version: 2\ntrunk:\n  enabled: true\n  max_commits_per_run: 3\n")

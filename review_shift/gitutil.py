@@ -41,6 +41,21 @@ def merge_base_diff(repo_root: Path, base: str, branch: str) -> str:
     )
 
 
+def merge_base_changed_files(repo_root: Path, base: str, branch: str) -> set[str]:
+    """`git diff --merge-base --name-only base branch` (add-depth-high design.md D3): the
+    branch's own changed files, used to narrow `repo_files` at `depth: high` so a finding
+    against an unchanged imported file fails validation instead of reaching the patch."""
+    out = _run(repo_root, ["diff", "--merge-base", "--name-only", base, branch])
+    return {line for line in out.splitlines() if line}
+
+
+def commit_changed_files(repo_root: Path, sha: str) -> set[str]:
+    """`git diff-tree --no-commit-id --name-only -r sha` (add-depth-high design.md D3): the
+    trunk-path equivalent of `merge_base_changed_files`, against one commit's own changes."""
+    out = _run(repo_root, ["diff-tree", "--no-commit-id", "--name-only", "-r", sha])
+    return {line for line in out.splitlines() if line}
+
+
 def show_file(repo_root: Path, sha: str, path: str) -> str:
     """Read `path` as it existed at `sha`, never through the working tree (ADR-012)."""
     return _run(repo_root, ["show", f"{sha}:{path}"])

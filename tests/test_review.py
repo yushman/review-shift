@@ -57,9 +57,12 @@ def test_build_command_flags_and_no_dangerous_bypass(tmp_path: Path):
     assert "--allow-dangerously-skip-permissions" not in cmd
 
 
-def test_build_command_rejects_unsupported_depth(tmp_path: Path):
-    with pytest.raises(review.ReviewConfigError):
-        review.build_command("prompt", "high", tmp_path, "session-1")
+def test_build_command_accepts_high_depth(tmp_path: Path):
+    cmd = review.build_command("prompt", "high", tmp_path, "session-1")
+    assert "--effort" in cmd
+    assert cmd[cmd.index("--effort") + 1] == "high"
+    assert "--max-budget-usd" in cmd
+    assert cmd[cmd.index("--max-budget-usd") + 1] == "5.0"
 
 
 def test_validate_findings_accepts_valid_payload():
@@ -150,6 +153,50 @@ def test_prompt_template_hash_changes_when_template_edited(tmp_path: Path, monke
     (fake_prompts / "medium.md").write_text("v2")
     h2 = review.prompt_template_hash("medium")
     assert h1 != h2
+
+
+@pytest.mark.parametrize(
+    "depth,full_file_review,expected",
+    [
+        ("low", "auto", review.SCOPE_HUNKS),
+        ("low", "always", review.SCOPE_FULL_FILES),
+        ("low", "never", review.SCOPE_HUNKS),
+        ("medium", "auto", review.SCOPE_FULL_FILES),
+        ("medium", "always", review.SCOPE_FULL_FILES),
+        ("medium", "never", review.SCOPE_HUNKS),
+        ("high", "auto", review.SCOPE_FULL_FILES_PLUS_IMPORTS),
+        ("high", "always", review.SCOPE_FULL_FILES_PLUS_IMPORTS),
+        ("high", "never", review.SCOPE_HUNKS),
+    ],
+)
+def test_resolve_scope_matches_design_table(depth, full_file_review, expected):
+    assert review.resolve_scope(depth, full_file_review) == expected
+
+
+def test_render_prompt_auto_renders_no_override_at_any_depth():
+    for depth in ("low", "medium", "high"):
+        scope = review.resolve_scope(depth, "auto")
+        prompt = review.render_prompt(
+            depth, "feature/x", "main", "abc123", "diff", resolved_scope=scope
+        )
+        assert "## Scope override" not in prompt
+
+
+def test_render_prompt_never_at_high_renders_hunks_override():
+    scope = review.resolve_scope("high", "never")
+    prompt = review.render_prompt(
+        "high", "feature/x", "main", "abc123", "diff", resolved_scope=scope
+    )
+    assert "## Scope override" in prompt
+    assert "changed hunks" in prompt
+
+
+def test_render_prompt_always_at_high_renders_no_override():
+    scope = review.resolve_scope("high", "always")
+    prompt = review.render_prompt(
+        "high", "feature/x", "main", "abc123", "diff", resolved_scope=scope
+    )
+    assert "## Scope override" not in prompt
 
 
 def _preflight_ok():

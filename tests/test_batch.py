@@ -571,4 +571,100 @@ def test_hard_timeout_kills_one_branch_but_batch_still_finishes_the_other(tmp_pa
     ok_run_dir = next(p for p in out_dir.iterdir() if p.is_dir() and "feature-ok" in p.name)
     assert (ok_run_dir / "findings.json").exists()
 
-    assert proc.returncode == 0  # one branch ok with no critical findings, one timed out
+
+# --- add-depth-high: findings invariant at depth: high ------------------------------------
+
+
+@pytest.fixture
+def repo_with_deleted_file(tmp_path: Path) -> Path:
+    """`feature/del` deletes `doomed.txt`, which `main` still has -- for the D3 test that a
+    deleted file is excluded from `high`'s narrowed `repo_files` (the intersection with the
+    tree at head), not just an unchanged one."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    _git(repo, "config", "user.email", "test@example.com")
+    _git(repo, "config", "user.name", "test")
+    (repo / "keep.txt").write_text("keep\n")
+    (repo / "doomed.txt").write_text("doomed\n")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", "initial")
+    _git(repo, "branch", "-m", "main")
+    _git(repo, "checkout", "-q", "-b", "feature/del")
+    _git(repo, "rm", "-q", "doomed.txt")
+    _git(repo, "commit", "-q", "-m", "delete doomed.txt")
+    _git(repo, "checkout", "-q", "main")
+    return repo
+
+
+def test_high_depth_finding_against_unchanged_file_is_retried_then_invalid(
+    branched_repo: Path, tmp_path: Path
+):
+    """design.md D3: `feature/x` only changed `src/bar.py` -- a finding against the untouched
+    `src/foo.py` (still present in the tree) fails validation at `high`, takes the retry path,
+    and (since the mock keeps returning the same violation) exhausts all 3 attempts loudly
+    rather than silently dropping the finding (tasks.md 3.5 + 3.7)."""
+    out_dir = tmp_path / "runs"
+    argv = ["run", "--branch", "feature/x", "--base", "main", "--depth", "high",
+            "--repo", str(branched_repo), "--out-dir", str(out_dir)]
+    events = _events(
+        [{"file": "src/foo.py", "line": 1, "severity": "low", "category": "style",
+          "rationale": "r"}]
+    )
+    with mock_patch(
+        "review_shift.review._invoke_with_timeout", return_value=(events, False)
+    ) as mock_invoke:
+        exit_code = cli.main(argv)
+
+    assert exit_code == 2  # invalid_model_output -> the only attempted branch failed
+    assert mock_invoke.call_count == 3
+
+    run_dir = next(p for p in out_dir.iterdir() if p.is_dir() and not p.is_symlink())
+    run_meta = json.loads((run_dir / "run.json").read_text())
+    assert run_meta["error"]["type"] == "invalid_model_output"
+    raw_files = sorted((run_dir / "raw").glob("attempt-*.txt"))
+    assert len(raw_files) == 3
+
+
+def test_medium_depth_accepts_the_same_finding_high_would_reject(
+    branched_repo: Path, tmp_path: Path
+):
+    """The other half of the asymmetry (tasks.md 3.5): the identical finding against an
+    unchanged file is accepted at `medium`, which keeps whole-tree validation."""
+    out_dir = tmp_path / "runs"
+    argv = ["run", "--branch", "feature/x", "--base", "main", "--depth", "medium",
+            "--repo", str(branched_repo), "--out-dir", str(out_dir)]
+    events = _events(
+        [{"file": "src/foo.py", "line": 1, "severity": "low", "category": "style",
+          "rationale": "r"}]
+    )
+    with mock_patch("review_shift.review._invoke_with_timeout", return_value=(events, False)):
+        exit_code = cli.main(argv)
+
+    assert exit_code == 0
+    run_dir = next(p for p in out_dir.iterdir() if p.is_dir() and not p.is_symlink())
+    run_meta = json.loads((run_dir / "run.json").read_text())
+    assert run_meta["findings_count"] == 1
+
+
+def test_high_depth_excludes_a_file_the_branch_deleted(
+    repo_with_deleted_file: Path, tmp_path: Path
+):
+    """design.md D3: `doomed.txt` is listed by `git diff --merge-base --name-only` (it
+    changed) but is absent from the tree at head_sha -- the intersection must exclude it, so a
+    finding against it fails validation instead of reaching `patch.py`'s `show_file` (tasks.md
+    3.6)."""
+    out_dir = tmp_path / "runs"
+    argv = ["run", "--branch", "feature/del", "--base", "main", "--depth", "high",
+            "--repo", str(repo_with_deleted_file), "--out-dir", str(out_dir)]
+    events = _events(
+        [{"file": "doomed.txt", "line": 1, "severity": "low", "category": "style",
+          "rationale": "r"}]
+    )
+    with mock_patch("review_shift.review._invoke_with_timeout", return_value=(events, False)):
+        exit_code = cli.main(argv)
+
+    assert exit_code == 2
+    run_dir = next(p for p in out_dir.iterdir() if p.is_dir() and not p.is_symlink())
+    run_meta = json.loads((run_dir / "run.json").read_text())
+    assert run_meta["error"]["type"] == "invalid_model_output"

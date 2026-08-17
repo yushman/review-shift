@@ -63,7 +63,8 @@ that file is the reference. A few fields worth knowing about before you first tu
 
 | Field | Default | |
 |---|---|---|
-| `depth` | `medium` | `low` \| `medium` — sets the review prompt, effort and max-findings preset |
+| `depth` | `medium` | `low` \| `medium` \| `high` — sets the review prompt, effort and max-findings preset |
+| `scope.full_file_review` | `auto` | `auto` \| `always` \| `never` — overrides depth's default scope; `never` floors it at changed hunks, `always` raises it to full changed files, `auto` follows depth. See Limitations for what this controls at `high` |
 | `discovery.patterns` | `[]` | fnmatch globs (or `re:`-prefixed regex) restricting which branches get discovered; empty means "every recently-moved branch" |
 | `discovery.max_age_hours` | `24` | a branch is eligible only if its last commit is within this window |
 | `runtime.budget_usd` | `10.00` | spend cap for one branch's review |
@@ -211,14 +212,22 @@ problems does not look like a broken job.
 - **Secret masking reduces exposure, it does not guarantee it.** Regex heuristics miss custom
   token formats, and the agent has its own filesystem access. Not for code under regulatory
   constraints.
+- **At `depth: high`, the agent reads files outside the branch's changes.** Scope is the
+  changed files plus their direct first-level imports, and the model reaches those imported
+  files with its own `Read`/`Grep`/`Glob`, not through the diff. `scope.exclude_paths` masks
+  secret values in the diff `review-shift` sends — it does not constrain what the agent reads
+  for itself, so an unchanged imported file is outside the redactor's reach. Findings are still
+  confined to the branch's own changed files (an imported file is context, never a report
+  target), but the read itself is wider. Set `scope.full_file_review: never` to run `high`'s
+  prompt and effort without the agent reading beyond the diff.
 - **No quality numbers are published yet.** Recall and precision are only claimed once the
   benchmark bench exists (v0.2). What v0.1 measures is patch applicability.
 - **Run artifacts contain code fragments** and live in your working tree.
-- **v0.1 scope:** depths `low` and `medium`, local branches only, one repository per run.
-  Diffs above ~2 000 changed lines are skipped with an explicit reason rather than truncated.
-  `high`, chunking and retention are v0.2; remote branches and PR integration are v0.3. Trunk
-  review (`--trunk`) reviews per commit — a defect spread across several small, individually
-  innocent-looking commits (`wip` → `fix` → `actually fix`) can still slip through; see ADR-025.
+- **v0.1 scope:** local branches only, one repository per run. Diffs above ~2 000 changed
+  lines are skipped with an explicit reason rather than truncated. Chunking and retention are
+  v0.2; remote branches and PR integration are v0.3. Trunk review (`--trunk`) reviews per
+  commit — a defect spread across several small, individually innocent-looking commits (`wip`
+  → `fix` → `actually fix`) can still slip through; see ADR-025.
 
 ## License
 

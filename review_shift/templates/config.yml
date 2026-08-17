@@ -1,7 +1,7 @@
 # Written by `review-shift init`. Meant to be committed (TDR §7) -- run artifacts under
 # .review-shift/runs/ are excluded separately, via .git/info/exclude, not this file.
 version: 2
-depth: medium                  # low | medium
+depth: medium                  # low | medium | high
 base_branch: auto              # auto = origin/HEAD, or an explicit branch name
 
 discovery:

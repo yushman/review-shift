@@ -121,6 +121,7 @@ def _review_branch(
     soft_timeout_minutes: float | None,
     hard_timeout_minutes: float | None,
     auto_fix_min_severity: str,
+    full_file_review: str,
 ) -> BranchOutcome:
     """One branch's full diff -> redact -> review -> patch -> report pipeline (walking-skeleton,
     secret-redaction), extended with the idempotency-key fields and timeout/budget wiring this
@@ -138,6 +139,12 @@ def _review_branch(
         merge_base_sha = gitutil.merge_base(repo_root, base, branch)
         diff_text = gitutil.merge_base_diff(repo_root, base, branch)
         repo_files = gitutil.ls_tree_files(repo_root, head_sha)
+        # add-depth-high design.md D3: at `high`, a review may read the whole repo for
+        # context but may only report on files the branch itself changed. Intersected with
+        # the tree so a file the branch deleted stays out (`--name-only` lists it; the tree
+        # at head_sha does not).
+        if depth == "high":
+            repo_files &= gitutil.merge_base_changed_files(repo_root, base, branch)
     except gitutil.GitError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return BranchOutcome(branch=branch, status="error", run_id=run_id, run_dir=str(run_dir),
@@ -161,6 +168,7 @@ def _review_branch(
             budget_override=budget_override,
             soft_timeout_minutes=soft_timeout_minutes,
             hard_timeout_minutes=hard_timeout_minutes,
+            full_file_review=full_file_review,
         )
     except review.ReviewTimeout as exc:
         _write_error_run(run_dir, run_id, branch, base, depth, head_sha, base_sha, merge_base_sha,
@@ -346,6 +354,7 @@ def _review_trunk_target(
     hard_timeout_minutes: float | None,
     auto_fix_min_severity: str,
     force: bool,
+    full_file_review: str,
 ) -> BranchOutcome:
     """The trunk target's whole run: one directory, an inner per-unit loop (design.md D8).
     Mirrors `_review_branch`'s shape (started_at/run_id/run_dir up front, never raises past
@@ -455,6 +464,10 @@ def _review_trunk_target(
                 secrets_redacted_files[f] = None
             try:
                 repo_files = gitutil.ls_tree_files(repo_root, unit.sha)
+                # add-depth-high design.md D3, trunk path: narrow to the commit's own
+                # changed files at `high`, mirroring the branch path above.
+                if depth == "high":
+                    repo_files &= gitutil.commit_changed_files(repo_root, unit.sha)
             except gitutil.GitError as exc:
                 units_meta.append({"sha": unit.sha, "status": "error", "cost_usd": 0.0,
                                     "error": str(exc)})
@@ -468,6 +481,7 @@ def _review_trunk_target(
                     model=model, budget_override=budget_usd,
                     soft_timeout_minutes=soft_timeout_minutes,
                     hard_timeout_minutes=hard_timeout_minutes,
+                    full_file_review=full_file_review,
                 )
             except review.ReviewTimeout as exc:
                 units_meta.append({"sha": unit.sha, "status": "timeout", "cost_usd": 0.0,
@@ -746,6 +760,7 @@ def run_batch(
     soft_timeout_minutes = runtime["soft_timeout_minutes"]
     hard_timeout_minutes = runtime["hard_timeout_minutes"]
     auto_fix_min_severity = loaded.data["patch"]["auto_fix_min_severity"]
+    full_file_review = loaded.data["scope"]["full_file_review"]
     config_hash = loaded.config_hash
 
     batch_started_at = datetime.now(UTC)
@@ -791,6 +806,7 @@ def run_batch(
                     soft_timeout_minutes=soft_timeout_minutes,
                     hard_timeout_minutes=hard_timeout_minutes,
                     auto_fix_min_severity=auto_fix_min_severity, force=force,
+                    full_file_review=full_file_review,
                 )
                 outcomes.append(outcome)
                 total_cost += outcome.cost_usd
@@ -853,6 +869,7 @@ def run_batch(
                     budget_override=budget_usd, soft_timeout_minutes=soft_timeout_minutes,
                     hard_timeout_minutes=hard_timeout_minutes,
                     auto_fix_min_severity=auto_fix_min_severity,
+                    full_file_review=full_file_review,
                 )
                 outcomes.append(outcome)
                 total_cost += outcome.cost_usd

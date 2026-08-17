@@ -33,9 +33,9 @@ run blocks the chat and eats session context, so it is restricted to `depth <= m
    review-shift run   # discovers and reviews every branch per .review-shift/config.yml
    ```
 2. If the request asks for `depth: high` (or just "deep"/"thorough" review): refuse. `high` is
-   out of scope for v0.1 entirely (product-analysis.md §6) and, even if it existed, would be
-   unavailable in-session per ADR-006. Offer `depth: medium` instead, or the standalone
-   command for later.
+   a real depth (`review-shift run --depth high`) but is out of scope in-session per ADR-006
+   — an interactive session is not the place for the longest, widest-reading review. Offer
+   `depth: medium` instead, or the standalone command for `high`.
 
 Do not silently downgrade a `high` request to `medium` and proceed -- refuse first, explain
 why, and only continue if the user asks for `low` or `medium` explicitly.

@@ -218,6 +218,18 @@ def test_commit_diff_ignores_binary_and_does_not_crash(tmp_path: Path):
     assert "Binary files" in diff_text
 
 
+def test_merge_base_changed_files_lists_branch_changes_only(branched_repo: Path):
+    """add-depth-high design.md D3: `feature/x` only touched `src/bar.py` against `main`."""
+    assert gitutil.merge_base_changed_files(branched_repo, "main", "feature/x") == {"src/bar.py"}
+
+
+def test_commit_changed_files_lists_one_commits_own_changes(fixture_repo: Path):
+    (fixture_repo / "src" / "bar.py").write_text("VALUE = 1  # comment\nOTHER = 2\n")
+    _git(fixture_repo, "commit", "-q", "-am", "add comment")
+    sha = _rev(fixture_repo, "HEAD")
+    assert gitutil.commit_changed_files(fixture_repo, sha) == {"src/bar.py"}
+
+
 def test_blame_line_map_maps_lines_to_originating_commit(tmp_path: Path):
     repo = tmp_path / "repo"
     repo.mkdir()
