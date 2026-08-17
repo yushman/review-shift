@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.metadata
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -52,7 +53,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     try:
         config_path = Path(args.config).resolve() if args.config else None
-        loaded = config_module.load_config(repo_root, config_path=config_path)
+        loaded = config_module.load_config(repo_root, config_path=config_path, env=os.environ)
     except config_module.ConfigError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_INTERNAL_ERROR
@@ -201,7 +202,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 def cmd_init_launchd(args: argparse.Namespace) -> int:
     repo_root = Path(args.repo).resolve() if args.repo else Path.cwd()
     try:
-        loaded = config_module.load_config(repo_root)
+        loaded = config_module.load_config(repo_root, env=os.environ)
     except config_module.ConfigError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_INTERNAL_ERROR

@@ -411,6 +411,26 @@ def test_configured_auth_preflight_budget_reaches_the_preflight_command(
     assert cmd[cmd.index("--max-budget-usd") + 1] == "0.25"
 
 
+def test_env_var_auth_preflight_budget_reaches_the_preflight_command(
+    three_branch_repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """cli.cmd_run must pass `env=os.environ` into `load_config` so `REVIEW_SHIFT__*` overrides
+    actually reach the real CLI entry point, not just direct `load_config(..., env=...)` calls
+    (the config-loading unit is already covered by test_config.py)."""
+    monkeypatch.setenv("REVIEW_SHIFT__RUNTIME__AUTH_PREFLIGHT_BUDGET_USD", "0.25")
+    out_dir = tmp_path / "runs"
+    argv = ["run", "--base", "main", "--repo", str(three_branch_repo), "--out-dir", str(out_dir)]
+    ok = _preflight_result(is_error=False)
+    with mock_patch("review_shift.review._run_preflight", return_value=ok) as mock_preflight:
+        with mock_patch(
+            "review_shift.review._invoke_with_timeout",
+            return_value=(_low_finding_events(), False),
+        ):
+            cli.main(argv)
+    cmd = mock_preflight.call_args[0][0]
+    assert cmd[cmd.index("--max-budget-usd") + 1] == "0.25"
+
+
 def test_preflight_own_budget_exhaustion_exits_4_as_auth_failed(
     three_branch_repo: Path, tmp_path: Path
 ):
