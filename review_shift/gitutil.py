@@ -132,5 +132,15 @@ def resolve_base_branch(repo_root: Path, base_branch: str) -> str:
     passes through unresolved (TDR FR-3)."""
     if base_branch != "auto":
         return base_branch
-    ref = _run(repo_root, ["symbolic-ref", "refs/remotes/origin/HEAD"]).strip()
+    try:
+        ref = _run(repo_root, ["symbolic-ref", "refs/remotes/origin/HEAD"]).strip()
+    except GitError as exc:
+        # Raw git stderr here is "not a symbolic ref", which doesn't say what to do -- happens
+        # whenever origin was added by hand (`git remote add`) instead of by `git clone`, which
+        # is the only thing that sets this ref.
+        raise GitError(
+            "base_branch: auto could not resolve origin/HEAD -- run "
+            "`git remote set-head origin -a`, or set base_branch explicitly in "
+            ".review-shift/config.yml"
+        ) from exc
     return ref.rsplit("/", 1)[-1]

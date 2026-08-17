@@ -55,6 +55,32 @@ def test_resolve_base_branch_auto_without_origin_raises(tmp_path: Path):
         gitutil.resolve_base_branch(repo, "auto")
 
 
+def test_resolve_base_branch_auto_with_origin_but_no_head_ref_raises_actionable_error(
+    tmp_path: Path,
+):
+    """`git remote add` (unlike `clone`) never sets `refs/remotes/origin/HEAD` -- the raw git
+    stderr for that ("not a symbolic ref") doesn't tell the user what to do."""
+    upstream = tmp_path / "upstream"
+    upstream.mkdir()
+    _git(upstream, "init", "-q")
+    _git(upstream, "config", "user.email", "test@example.com")
+    _git(upstream, "config", "user.name", "test")
+    (upstream / "f.txt").write_text("one\n")
+    _git(upstream, "add", ".")
+    _git(upstream, "commit", "-q", "-m", "initial")
+    _git(upstream, "branch", "-m", "main")
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    _git(repo, "config", "user.email", "test@example.com")
+    _git(repo, "config", "user.name", "test")
+    _git(repo, "remote", "add", "origin", str(upstream))
+
+    with pytest.raises(gitutil.GitError, match="git remote set-head"):
+        gitutil.resolve_base_branch(repo, "auto")
+
+
 # --- trunk-review git plumbing --------------------------------------------------------------
 
 
