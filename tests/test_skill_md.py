@@ -38,4 +38,5 @@ def test_skill_md_documents_lock_reuse():
 
 def test_skill_md_documents_the_standalone_fallback_recipe():
     text = CANONICAL_SKILL.read_text()
-    assert "review-shift run --branch $(git branch --show-current) --depth low" in text
+    assert "review-shift run --branch <branch> --base <base> --depth low" in text
+    assert "review-shift run --trunk --base <base> --depth low" in text

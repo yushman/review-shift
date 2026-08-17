@@ -147,8 +147,10 @@ review-shift init skill
 ```
 
 `init skill` writes `.claude/skills/review-shift/SKILL.md` in the current repository; re-run
-it after upgrading `review-shift` to pick up a changed skill. Both channels can be installed
-at once — Claude Code keeps the original `/skill-name` and the plugin copy side by side.
+it after upgrading `review-shift` to pick up a changed skill. The plugin channel picks up a
+changed skill with `claude plugin update review-shift@review-shift` instead. Both channels can
+be installed at once — Claude Code keeps the original `/skill-name` and the plugin copy side
+by side.
 
 ## Applying a patch
 
