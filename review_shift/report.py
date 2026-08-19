@@ -152,7 +152,8 @@ def _skipped_branches(run: RunMeta) -> str:
         # completed review (superseded, diff_too_large, max_commits_per_run_cap,
         # budget_exhausted, or an outright failure) renders here, same heading, same position.
         skipped = [
-            u for u in run.get("units", []) if u["status"] not in _TRUNK_REVIEWED_STATUSES
+            u for u in run.get("units", [])
+            if u["status"] not in _TRUNK_REVIEWED_STATUSES and u["status"] != "dry_run"
         ]
         if not skipped:
             return "## Skipped branches\n\nNone were skipped.\n"
@@ -193,7 +194,74 @@ def _apply_recipe(run: RunMeta) -> str:
     )
 
 
+def _dry_run_targets(run: RunMeta) -> str:
+    """The branch path lists `targets`, the trunk path lists `units` — same question either
+    way: what would tonight have paid to review, and how big is each piece of it."""
+    targets = run.get("targets")
+    if targets is not None:
+        if not targets:
+            return "## Would have reviewed\n\nNo branches were selected.\n"
+        out = [f"## Would have reviewed ({len(targets)})\n\n"]
+        for t in targets:
+            if t["status"] == "error":
+                out.append(f"- `{t['branch']}`: **error** — {t['error']}\n")
+                continue
+            out.append(
+                f"- `{t['branch']}` vs `{t['base']}` (merge-base `{t['merge_base_sha'][:12]}`)"
+                f" at depth `{t['depth']}` — {t['changed_files']} changed file(s),"
+                f" diff {t['diff_lines']} line(s) / {t['diff_bytes']} byte(s),"
+                f" {t['secrets_redacted']} secret(s) redacted\n"
+            )
+        return "".join(out)
+
+    units = [u for u in run.get("units", []) if u["status"] == "dry_run"]
+    if not units:
+        return "## Would have reviewed\n\nNo commits were selected.\n"
+    out = [f"## Would have reviewed ({len(units)})\n\n"]
+    for u in units:
+        out.append(
+            f"- `{u['sha']}` on `{run['base']}` at depth `{run['depth']}` — "
+            f"diff {u.get('diff_lines', 0)} line(s) / {u.get('diff_bytes', 0)} byte(s)\n"
+        )
+    return "".join(out)
+
+
+def render_dry_run(run: RunMeta) -> str:
+    """`--dry-run`'s report. "Reviewed, found nothing" and "nothing was reviewed" are the same
+    zero on the page and only one of them is a clean night (dry-run-preview spec), so this
+    document says what it is at the top and never renders a findings section at all."""
+    header = "".join([
+        "## Header\n\n",
+        "- **dry run — no review was performed**\n",
+        f"- base: `{run['base']}`\n",
+        f"- depth: `{run['depth']}`\n",
+        f"- model: `{run.get('model') or 'n/a'}`\n",
+        f"- started_at: {run['started_at']}\n",
+        f"- duration_ms: {run['duration_ms']}\n",
+        f"- cost_usd: {run['cost_usd']:.4f}\n",
+    ])
+    if run.get("mode") == "trunk":
+        # The trunk path's own "why was nothing selected" reason still has to reach the page:
+        # bootstrap and nothing_new are not the same as "the preview found no work".
+        header += f"- trunk_outcome: `{run.get('trunk_outcome')}`\n"
+    statement = (
+        "## No review was performed\n\n"
+        "This run exercised discovery, the merge-base diff and redaction, then stopped before "
+        "the model. No `claude` call was made, nothing was spent, and **no finding can come "
+        "out of this run** — its absence of findings says nothing about the code. Re-run "
+        "without `--dry-run` to actually review.\n"
+    )
+    return "\n".join([
+        header,
+        statement,
+        _dry_run_targets(run),
+        _skipped_branches(run),
+    ])
+
+
 def render(run: RunMeta, localized: list[LocalizedFinding]) -> str:
+    if run.get("dry_run"):
+        return render_dry_run(run)
     sections = [
         _header(run),
         _summary(run, localized),

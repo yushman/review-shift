@@ -1,18 +1,38 @@
-"""The `version: 1` config schema, normatively defined by TDR §7. `additionalProperties:
+"""The `version: 3` config schema, normatively defined by TDR §7. `additionalProperties:
 false` at every level is ADR-009's "unknown field is a hard error, never ignored" rule.
 """
 from __future__ import annotations
 
 from typing import Any
 
-SCHEMA_V2: dict[str, Any] = {
+# restructure-depth-tiers D1/D2: the ladder was relabelled one rung down and `high` was
+# removed outright. Every surface that accepts a depth (the CLI flag, the config schema)
+# reads this one set, and every refusal reads the same message -- a user who types the
+# retired name must be told what it maps to, never silently served a shallower level.
+DEPTH_VALUES: tuple[str, ...] = ("smoke", "low", "medium")
+
+_RELABEL_NOTE = (
+    "the ladder was relabelled: the previous `high` is now `medium`, the previous `medium` "
+    "is now `low`, and the previous `low` is now `smoke`"
+)
+
+
+def depth_error_message(value: object) -> str:
+    accepted = ", ".join(DEPTH_VALUES)
+    msg = f"invalid depth {value!r}: accepted values are {accepted}"
+    if value == "high":
+        return f"{msg} -- {_RELABEL_NOTE}"
+    return msg
+
+
+SCHEMA_V3: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
     "additionalProperties": False,
     "required": ["version"],
     "properties": {
-        "version": {"const": 2},
-        "depth": {"enum": ["low", "medium", "high"]},
+        "version": {"const": 3},
+        "depth": {"enum": list(DEPTH_VALUES)},
         "base_branch": {"type": "string"},
         "discovery": {
             "type": "object",

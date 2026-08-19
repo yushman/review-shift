@@ -52,7 +52,7 @@ def test_run_case_passes_force_and_out_dir(tmp_path: Path):
         mock_patch("bench.runner.ensure_sha", return_value=None),
         mock_patch("bench.runner.subprocess.run", side_effect=fake_run),
     ):
-        result = run_case(case, repo, "high", runs_dir=tmp_path / "runs")
+        result = run_case(case, repo, "medium", runs_dir=tmp_path / "runs")
 
     assert result.status == "ok"
     assert result.cost_usd == 0.5
@@ -66,7 +66,7 @@ def test_run_case_materialize_failure_does_not_raise(tmp_path: Path):
     case = _case("c1")
     repo = _repo()
     with mock_patch("bench.runner.materialize_repo", side_effect=MaterializeError("boom")):
-        result = run_case(case, repo, "high", runs_dir=tmp_path / "runs")
+        result = run_case(case, repo, "medium", runs_dir=tmp_path / "runs")
     assert result.status == "materialize_failed"
     assert "boom" in (result.reason or "")
 
@@ -86,7 +86,7 @@ def test_run_all_stops_when_budget_exhausted(tmp_path: Path):
         mock_patch("bench.runner.subprocess.run", side_effect=fake_run),
     ):
         results = run_all(
-            cases, repos, depths=("high",), budget_usd=1.0, runs_dir=tmp_path / "runs",
+            cases, repos, depths=("medium",), budget_usd=1.0, runs_dir=tmp_path / "runs",
         )
 
     statuses = [(r.case.id, r.status) for r in results]
@@ -96,5 +96,5 @@ def test_run_all_stops_when_budget_exhausted(tmp_path: Path):
 
 def test_run_all_reports_unknown_repo(tmp_path: Path):
     cases = [_case("c1", repo="ghost")]
-    results = run_all(cases, {}, depths=("high",), budget_usd=100.0, runs_dir=tmp_path / "runs")
+    results = run_all(cases, {}, depths=("medium",), budget_usd=100.0, runs_dir=tmp_path / "runs")
     assert results[0].status == "unknown_repo"

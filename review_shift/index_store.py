@@ -14,21 +14,29 @@ INDEX_SCHEMA_VERSION = 2  # 2: adds the `watermarks` map (trunk-review capabilit
 
 
 def compute_idempotency_key(
-    *, head_sha: str, base_sha: str, depth: str, config_hash: str, prompt_hash: str
+    *, head_sha: str, base_sha: str, depth: str, model: str, config_hash: str, prompt_hash: str
 ) -> str:
-    """`idempotency_key = f(head_sha, base_sha, depth, config_hash, prompt_hash)` — NFR-1.
-    Every component is part of the digest input; changing any one changes the key."""
-    canonical = "\x1f".join([head_sha, base_sha, depth, config_hash, prompt_hash])
+    """`idempotency_key = f(head_sha, base_sha, depth, model, config_hash, prompt_hash)` —
+    NFR-1. Every component is part of the digest input; changing any one changes the key.
+
+    `model` is the model *as requested* — the alias or full identifier that came from `--model`
+    or `runtime.model` — not the identifier the CLI resolved it to (restructure-depth-tiers
+    D6): `model_resolved` only exists after a call returns, and this key has to be computable
+    before deciding whether to make the call. Two spellings of one model therefore miss each
+    other and cost a redundant review, which is the right direction to be wrong in — a false
+    miss is a bill, a false hit is an answer produced under conditions nobody asked for."""
+    canonical = "\x1f".join([head_sha, base_sha, depth, model, config_hash, prompt_hash])
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
 def compute_trunk_idempotency_key(
-    *, commit_sha: str, depth: str, config_hash: str, prompt_hash: str
+    *, commit_sha: str, depth: str, model: str, config_hash: str, prompt_hash: str
 ) -> str:
-    """`f(commit_sha, depth, config_hash, prompt_hash)` — no `base_sha` (design.md D6). A
-    commit's content is immutable, so this key is stable across the base head advancing, which
-    is what makes bootstrap's re-enumeration (D2) resolve as cache hits instead of a re-pay."""
-    canonical = "\x1f".join([commit_sha, depth, config_hash, prompt_hash])
+    """`f(commit_sha, depth, model, config_hash, prompt_hash)` — no `base_sha` (design.md D6).
+    A commit's content is immutable, so this key is stable across the base head advancing,
+    which is what makes bootstrap's re-enumeration (D2) resolve as cache hits instead of a
+    re-pay. `model` is the requested string, on the same terms as the branch key above."""
+    canonical = "\x1f".join([commit_sha, depth, model, config_hash, prompt_hash])
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 

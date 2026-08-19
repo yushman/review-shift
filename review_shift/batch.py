@@ -62,7 +62,11 @@ def _relative_or_absolute(path: Path, base: Path) -> str:
 @dataclass
 class BranchOutcome:
     branch: str
-    status: str  # ok | cache_hit | error | timeout | refused | invalid | budget_exhausted
+    # ok | cache_hit | dry_run | error | timeout | refused | invalid | budget_exhausted.
+    # `dry_run` is deliberately in neither SUCCESS_STATUSES nor FAILED_STATUSES: a preview
+    # neither succeeded at reviewing nor failed at it, so it must not move `latest` and must
+    # not make a batch read as "every branch failed" (dry-run-preview spec).
+    status: str
     run_id: str | None = None
     run_dir: str | None = None
     exit_code: int = EXIT_OK
@@ -139,11 +143,12 @@ def _review_branch(
         merge_base_sha = gitutil.merge_base(repo_root, base, branch)
         diff_text = gitutil.merge_base_diff(repo_root, base, branch)
         repo_files = gitutil.ls_tree_files(repo_root, head_sha)
-        # add-depth-high design.md D3: at `high`, a review may read the whole repo for
+        # add-depth-high design.md D3, keyed on `medium` since restructure-depth-tiers
+        # relabelled the ladder: at the deepest level a review may read the whole repo for
         # context but may only report on files the branch itself changed. Intersected with
         # the tree so a file the branch deleted stays out (`--name-only` lists it; the tree
         # at head_sha does not).
-        if depth == "high":
+        if depth == "medium":
             repo_files &= gitutil.merge_base_changed_files(repo_root, base, branch)
     except gitutil.GitError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -236,7 +241,7 @@ def _review_branch(
 
     prompt_hash = review.prompt_template_hash(depth)
     idempotency_key = index_store.compute_idempotency_key(
-        head_sha=head_sha, base_sha=base_sha, depth=depth,
+        head_sha=head_sha, base_sha=base_sha, depth=depth, model=model,
         config_hash=config_hash, prompt_hash=prompt_hash,
     )
 
@@ -318,6 +323,117 @@ def _review_branch(
     )
 
 
+def _dry_run_branches(
+    *,
+    repo_root: Path,
+    branches: list[str],
+    base: str,
+    depth: str,
+    model: str,
+    out_dir: Path,
+    exclude_paths: list[str],
+    skipped_discovery: list[dict[str, Any]],
+    config_hash: str,
+    prompt_hash: str,
+    index: dict[str, Any],
+) -> BranchOutcome:
+    """`--dry-run` over the branch path: diff and redaction for every selected branch, a
+    report, and not one `claude` call (dry-run-preview spec).
+
+    One run directory for the whole preview rather than one per branch — the question the flag
+    answers is "did tonight pick the branches I expected, and does each diff build", and that
+    is only answerable from a single page listing all of them. The idempotency cache is not
+    consulted either: a preview that hid a branch because its last review is still valid would
+    misreport the selection it exists to confirm.
+    """
+    started_at = datetime.now(UTC)
+    run_id = _make_run_id("dry-run")
+    run_dir = out_dir / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    targets: list[dict[str, Any]] = []
+    for branch in branches:
+        try:
+            base_sha = gitutil.rev_parse(repo_root, base)
+            head_sha = gitutil.rev_parse(repo_root, branch)
+            merge_base_sha = gitutil.merge_base(repo_root, base, branch)
+            diff_text = gitutil.merge_base_diff(repo_root, base, branch)
+            changed_files = gitutil.merge_base_changed_files(repo_root, base, branch)
+        except gitutil.GitError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            targets.append(
+                {"branch": branch, "base": base, "status": "error", "error": str(exc)}
+            )
+            continue
+
+        redaction = redact.redact_diff(diff_text, exclude_paths)
+        idempotency_key = index_store.compute_idempotency_key(
+            head_sha=head_sha, base_sha=base_sha, depth=depth, model=model,
+            config_hash=config_hash, prompt_hash=prompt_hash,
+        )
+        targets.append({
+            "branch": branch,
+            "base": base,
+            "base_sha": base_sha,
+            "head_sha": head_sha,
+            "merge_base_sha": merge_base_sha,
+            "depth": depth,
+            "changed_files": len(changed_files),
+            "diff_lines": redaction.diff_text.count("\n"),
+            "diff_bytes": len(redaction.diff_text),
+            "secrets_redacted": redaction.secrets_redacted,
+            "secrets_redacted_files": redaction.secrets_redacted_files,
+            "idempotency_key": idempotency_key,
+            "status": "would_review",
+        })
+        # Recorded so the preview is inspectable, with a status `find_cache_hit` does not
+        # accept — a dry run must never let the real run that follows it skip the branch.
+        index.setdefault("runs", []).append({
+            "run_id": run_id,
+            "branch": branch,
+            "head_sha": head_sha,
+            "base_sha": base_sha,
+            "depth": depth,
+            "prompt_hash": prompt_hash,
+            "config_hash": config_hash,
+            "idempotency_key": idempotency_key,
+            "status": "dry_run",
+        })
+
+    errored = [t for t in targets if t["status"] == "error"]
+    all_failed = bool(targets) and len(errored) == len(targets)
+    exit_code = EXIT_INTERNAL_ERROR if all_failed else EXIT_OK
+
+    run_meta: dict[str, Any] = {
+        "schema_version": 2,
+        "run_id": run_id,
+        "mode": "dry_run",
+        "dry_run": True,
+        "branch": None,
+        "base": base,
+        "depth": depth,
+        "model": model,
+        "prompt_hash": prompt_hash,
+        "config_hash": config_hash,
+        "started_at": started_at.isoformat(),
+        "duration_ms": int((datetime.now(UTC) - started_at).total_seconds() * 1000),
+        "cost_usd": 0.0,
+        "targets": targets,
+        "skipped": skipped_discovery,
+        "exit_code": exit_code,
+    }
+    (run_dir / "run.json").write_text(json.dumps(run_meta, indent=2))
+    (run_dir / "report.md").write_text(report.render_dry_run(run_meta))
+    print(str(run_dir))
+
+    return BranchOutcome(
+        branch=base if all_failed else "(dry run)",
+        status="error" if all_failed else "dry_run",
+        run_id=run_id, run_dir=str(run_dir), exit_code=exit_code, cost_usd=0.0,
+        reason=errored[0]["error"] if all_failed else None,
+    )
+
+
 def _write_trunk_error_run(
     run_dir: Path, run_id: str, base: str, depth: str, started_at: datetime,
     *, error_type: str, message: str,
@@ -355,6 +471,7 @@ def _review_trunk_target(
     auto_fix_min_severity: str,
     force: bool,
     full_file_review: str,
+    dry_run: bool = False,
 ) -> BranchOutcome:
     """The trunk target's whole run: one directory, an inner per-unit loop (design.md D8).
     Mirrors `_review_branch`'s shape (started_at/run_id/run_dir up front, never raises past
@@ -382,7 +499,10 @@ def _review_trunk_target(
 
     base_head_sha = disc.base_head_sha
 
-    if disc.outcome == "bootstrap":
+    # A dry run never moves the watermark, on bootstrap or after a unit: bootstrapping it here
+    # would make the next real run report `nothing_new` and review nothing — the same
+    # "preview cancels the night" hazard as a cache-eligible index entry (dry-run-preview spec).
+    if disc.outcome == "bootstrap" and not dry_run:
         index_store.write_watermark(
             index, base, sha=base_head_sha, run_id=run_id, at=started_at.isoformat(),
         )
@@ -445,10 +565,10 @@ def _review_trunk_target(
                     continue
 
             trunk_key = index_store.compute_trunk_idempotency_key(
-                commit_sha=unit.sha, depth=depth, config_hash=config_hash,
+                commit_sha=unit.sha, depth=depth, model=model, config_hash=config_hash,
                 prompt_hash=prompt_hash,
             )
-            if not force:
+            if not force and not dry_run:
                 hit = index_store.find_cache_hit(index, trunk_key)
                 if hit is not None:
                     units_meta.append({
@@ -465,13 +585,30 @@ def _review_trunk_target(
             try:
                 repo_files = gitutil.ls_tree_files(repo_root, unit.sha)
                 # add-depth-high design.md D3, trunk path: narrow to the commit's own
-                # changed files at `high`, mirroring the branch path above.
-                if depth == "high":
+                # changed files at `medium`, mirroring the branch path above.
+                if depth == "medium":
                     repo_files &= gitutil.commit_changed_files(repo_root, unit.sha)
             except gitutil.GitError as exc:
                 units_meta.append({"sha": unit.sha, "status": "error", "cost_usd": 0.0,
                                     "error": str(exc)})
                 stopped = True
+                continue
+
+            if dry_run:
+                # Everything before the model has run for this commit — the diff, the
+                # redaction, the tree listing. The model call is where the preview stops, and
+                # the watermark stays put so the real run still reviews this commit.
+                units_meta.append({
+                    "sha": unit.sha, "status": "dry_run", "cost_usd": 0.0,
+                    "changed_lines": unit.changed_lines,
+                    "diff_lines": redaction.diff_text.count("\n"),
+                    "diff_bytes": len(redaction.diff_text),
+                    "idempotency_key": trunk_key,
+                })
+                index.setdefault("runs", []).append({
+                    "run_id": run_id, "unit_sha": unit.sha, "idempotency_key": trunk_key,
+                    "status": "dry_run",
+                })
                 continue
 
             try:
@@ -612,11 +749,13 @@ def _review_trunk_target(
         "schema_version": 2,
         "run_id": run_id,
         "mode": "trunk",
+        "dry_run": dry_run,
         "branch": base,
         "base": base,
         "anchor_sha": disc.anchor_sha,
         "head_sha": base_head_sha,
         "depth": depth,
+        "model": model,
         "model_resolved": model_resolved,
         "claude_code_version": claude_code_version,
         "prompt_hash": prompt_hash,
@@ -669,8 +808,9 @@ def _review_trunk_target(
     print(str(run_dir))
 
     return BranchOutcome(
-        branch=base, status="ok", run_id=run_id, run_dir=str(run_dir), exit_code=exit_code,
-        cost_usd=total_cost, findings_by_severity=findings_by_severity, index_entry=None,
+        branch=base, status="dry_run" if dry_run else "ok", run_id=run_id,
+        run_dir=str(run_dir), exit_code=exit_code, cost_usd=total_cost,
+        findings_by_severity=findings_by_severity, index_entry=None,
     )
 
 
@@ -747,6 +887,7 @@ def run_batch(
     force: bool,
     exit_zero_on_findings: bool,
     trunk: bool = False,
+    dry_run: bool = False,
 ) -> int:
     """The whole batch under one lock (ADR-007's "held for the entire batch, including
     index.json and latest writes" — not re-acquired per branch, per design.md's decision).
@@ -770,30 +911,34 @@ def run_batch(
         with lock.acquire(repo_root):
             # Auth preflight before any branch starts (budget-and-resilience spec "Auth
             # preflight before the batch") — a broken/expired auth environment must be visible
-            # immediately, not discovered mid-batch.
-            try:
-                review.check_auth(model=model, budget_usd=auth_preflight_budget_usd)
-            except review.QuotaError as exc:
-                print(f"error: {exc}", file=sys.stderr)
-                _write_batch_summary(
-                    out_dir, base, batch_id=batch_id, started_at=batch_started_at, outcomes=[],
-                    discovery_skipped=discovery_skipped, auth_status="quota_exhausted",
-                    exit_code=EXIT_AUTH_OR_QUOTA,
-                )
-                return EXIT_AUTH_OR_QUOTA
-            except (review.AuthError, review.AuthPreflightError) as exc:
-                print(f"error: {exc}", file=sys.stderr)
-                _write_batch_summary(
-                    out_dir, base, batch_id=batch_id, started_at=batch_started_at, outcomes=[],
-                    discovery_skipped=discovery_skipped, auth_status="auth_failed",
-                    exit_code=EXIT_AUTH_OR_QUOTA,
-                )
-                return EXIT_AUTH_OR_QUOTA
+            # immediately, not discovered mid-batch. It is itself a `claude -p` call, so a dry
+            # run skips it: the preflight guards a batch that is about to spend, and there is
+            # nothing here to guard (dry-run-preview spec "No model process is started").
+            if not dry_run:
+                try:
+                    review.check_auth(model=model, budget_usd=auth_preflight_budget_usd)
+                except review.QuotaError as exc:
+                    print(f"error: {exc}", file=sys.stderr)
+                    _write_batch_summary(
+                        out_dir, base, batch_id=batch_id, started_at=batch_started_at,
+                        outcomes=[], discovery_skipped=discovery_skipped,
+                        auth_status="quota_exhausted", exit_code=EXIT_AUTH_OR_QUOTA,
+                    )
+                    return EXIT_AUTH_OR_QUOTA
+                except (review.AuthError, review.AuthPreflightError) as exc:
+                    print(f"error: {exc}", file=sys.stderr)
+                    _write_batch_summary(
+                        out_dir, base, batch_id=batch_id, started_at=batch_started_at,
+                        outcomes=[], discovery_skipped=discovery_skipped,
+                        auth_status="auth_failed", exit_code=EXIT_AUTH_OR_QUOTA,
+                    )
+                    return EXIT_AUTH_OR_QUOTA
 
             index = index_store.load_index(out_dir)
             prompt_hash = review.prompt_template_hash(depth)
             outcomes: list[BranchOutcome] = []
             total_cost = 0.0
+            auth_status = "skipped" if dry_run else "ok"
 
             if trunk:
                 trunk_cfg = loaded.data["trunk"]
@@ -806,7 +951,7 @@ def run_batch(
                     soft_timeout_minutes=soft_timeout_minutes,
                     hard_timeout_minutes=hard_timeout_minutes,
                     auto_fix_min_severity=auto_fix_min_severity, force=force,
-                    full_file_review=full_file_review,
+                    full_file_review=full_file_review, dry_run=dry_run,
                 )
                 outcomes.append(outcome)
                 total_cost += outcome.cost_usd
@@ -822,8 +967,24 @@ def run_batch(
                 exit_code = _aggregate_exit_code(outcomes, exit_zero_on_findings)
                 _write_batch_summary(
                     out_dir, base, batch_id=batch_id, started_at=batch_started_at,
-                    outcomes=outcomes, discovery_skipped=discovery_skipped, auth_status="ok",
-                    exit_code=exit_code, total_cost_usd=total_cost,
+                    outcomes=outcomes, discovery_skipped=discovery_skipped,
+                    auth_status=auth_status, exit_code=exit_code, total_cost_usd=total_cost,
+                )
+                return exit_code
+
+            if dry_run:
+                outcomes.append(_dry_run_branches(
+                    repo_root=repo_root, branches=branches, base=base, depth=depth, model=model,
+                    out_dir=out_dir, exclude_paths=exclude_paths,
+                    skipped_discovery=discovery_skipped, config_hash=config_hash,
+                    prompt_hash=prompt_hash, index=index,
+                ))
+                index_store.write_index_atomic(out_dir, index)
+                exit_code = _aggregate_exit_code(outcomes, exit_zero_on_findings)
+                _write_batch_summary(
+                    out_dir, base, batch_id=batch_id, started_at=batch_started_at,
+                    outcomes=outcomes, discovery_skipped=discovery_skipped,
+                    auth_status=auth_status, exit_code=exit_code, total_cost_usd=0.0,
                 )
                 return exit_code
 
@@ -846,7 +1007,7 @@ def run_batch(
                         ))
                         continue
                     key = index_store.compute_idempotency_key(
-                        head_sha=head_sha, base_sha=base_sha, depth=depth,
+                        head_sha=head_sha, base_sha=base_sha, depth=depth, model=model,
                         config_hash=config_hash, prompt_hash=prompt_hash,
                     )
                     hit = index_store.find_cache_hit(index, key)

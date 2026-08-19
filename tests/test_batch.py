@@ -597,15 +597,16 @@ def repo_with_deleted_file(tmp_path: Path) -> Path:
     return repo
 
 
-def test_high_depth_finding_against_unchanged_file_is_retried_then_invalid(
+def test_medium_depth_finding_against_unchanged_file_is_retried_then_invalid(
     branched_repo: Path, tmp_path: Path
 ):
-    """design.md D3: `feature/x` only changed `src/bar.py` -- a finding against the untouched
-    `src/foo.py` (still present in the tree) fails validation at `high`, takes the retry path,
-    and (since the mock keeps returning the same violation) exhausts all 3 attempts loudly
-    rather than silently dropping the finding (tasks.md 3.5 + 3.7)."""
+    """design.md D3, keyed on `medium` since the ladder was relabelled: `feature/x` only
+    changed `src/bar.py` -- a finding against the untouched `src/foo.py` (still present in the
+    tree) fails validation at `medium`, takes the retry path, and (since the mock keeps
+    returning the same violation) exhausts all 3 attempts loudly rather than silently dropping
+    the finding (tasks.md 3.5 + 3.7)."""
     out_dir = tmp_path / "runs"
-    argv = ["run", "--branch", "feature/x", "--base", "main", "--depth", "high",
+    argv = ["run", "--branch", "feature/x", "--base", "main", "--depth", "medium",
             "--repo", str(branched_repo), "--out-dir", str(out_dir)]
     events = _events(
         [{"file": "src/foo.py", "line": 1, "severity": "low", "category": "style",
@@ -626,13 +627,14 @@ def test_high_depth_finding_against_unchanged_file_is_retried_then_invalid(
     assert len(raw_files) == 3
 
 
-def test_medium_depth_accepts_the_same_finding_high_would_reject(
+def test_low_depth_accepts_the_same_finding_medium_would_reject(
     branched_repo: Path, tmp_path: Path
 ):
     """The other half of the asymmetry (tasks.md 3.5): the identical finding against an
-    unchanged file is accepted at `medium`, which keeps whole-tree validation."""
+    unchanged file is accepted at `low`, which keeps whole-tree validation -- the narrowing is
+    defined for `medium` only (review-invocation spec "The contour follows the depth")."""
     out_dir = tmp_path / "runs"
-    argv = ["run", "--branch", "feature/x", "--base", "main", "--depth", "medium",
+    argv = ["run", "--branch", "feature/x", "--base", "main", "--depth", "low",
             "--repo", str(branched_repo), "--out-dir", str(out_dir)]
     events = _events(
         [{"file": "src/foo.py", "line": 1, "severity": "low", "category": "style",
@@ -647,7 +649,7 @@ def test_medium_depth_accepts_the_same_finding_high_would_reject(
     assert run_meta["findings_count"] == 1
 
 
-def test_high_depth_excludes_a_file_the_branch_deleted(
+def test_medium_depth_excludes_a_file_the_branch_deleted(
     repo_with_deleted_file: Path, tmp_path: Path
 ):
     """design.md D3: `doomed.txt` is listed by `git diff --merge-base --name-only` (it
@@ -655,7 +657,7 @@ def test_high_depth_excludes_a_file_the_branch_deleted(
     finding against it fails validation instead of reaching `patch.py`'s `show_file` (tasks.md
     3.6)."""
     out_dir = tmp_path / "runs"
-    argv = ["run", "--branch", "feature/del", "--base", "main", "--depth", "high",
+    argv = ["run", "--branch", "feature/del", "--base", "main", "--depth", "medium",
             "--repo", str(repo_with_deleted_file), "--out-dir", str(out_dir)]
     events = _events(
         [{"file": "doomed.txt", "line": 1, "severity": "low", "category": "style",
@@ -668,3 +670,167 @@ def test_high_depth_excludes_a_file_the_branch_deleted(
     run_dir = next(p for p in out_dir.iterdir() if p.is_dir() and not p.is_symlink())
     run_meta = json.loads((run_dir / "run.json").read_text())
     assert run_meta["error"]["type"] == "invalid_model_output"
+
+
+# --- restructure-depth-tiers: the requested model is part of the idempotency key ----------
+
+
+def test_rerun_with_a_different_model_is_not_a_cache_hit(
+    three_branch_repo: Path, tmp_path: Path
+):
+    """batch-execution spec "Re-checking a branch with a different model": `--model` bypasses
+    `config_hash` entirely, so without the model in the key a user reaching for a stronger
+    model to re-check a branch silently receives the weaker model's earlier answer."""
+    out_dir = tmp_path / "runs"
+    base_argv = ["run", "--branch", "feature/a", "--base", "main",
+                 "--repo", str(three_branch_repo), "--out-dir", str(out_dir)]
+
+    with mock_patch(
+        "review_shift.review._invoke_with_timeout", return_value=(_low_finding_events(), False)
+    ):
+        assert cli.main([*base_argv, "--model", "sonnet"]) == 0
+
+    time.sleep(1.1)  # run_id has second granularity (ADR-007)
+
+    with mock_patch(
+        "review_shift.review._invoke_with_timeout", return_value=(_low_finding_events(), False)
+    ) as mock_invoke:
+        assert cli.main([*base_argv, "--model", "opus"]) == 0
+    mock_invoke.assert_called()
+
+    run_dirs = [p for p in out_dir.iterdir() if p.is_dir() and not p.is_symlink()]
+    assert len(run_dirs) == 2
+
+
+def test_rerun_with_the_same_model_is_still_a_cache_hit(
+    three_branch_repo: Path, tmp_path: Path
+):
+    """The other half: adding a component must not break the hit that used to work."""
+    out_dir = tmp_path / "runs"
+    argv = ["run", "--branch", "feature/a", "--base", "main", "--model", "opus",
+            "--repo", str(three_branch_repo), "--out-dir", str(out_dir)]
+
+    with mock_patch(
+        "review_shift.review._invoke_with_timeout", return_value=(_low_finding_events(), False)
+    ):
+        assert cli.main(argv) == 0
+
+    with mock_patch("review_shift.review._invoke_with_timeout") as mock_invoke:
+        assert cli.main(argv) == 0
+    mock_invoke.assert_not_called()
+
+
+# --- restructure-depth-tiers: --dry-run ---------------------------------------------------
+
+
+def test_dry_run_starts_no_subprocess_and_records_zero_cost(
+    three_branch_repo: Path, tmp_path: Path
+):
+    """dry-run-preview spec "No model process is started": neither the review call nor the
+    auth preflight, which exists to guard a batch about to spend."""
+    out_dir = tmp_path / "runs"
+    argv = ["run", "--base", "main", "--repo", str(three_branch_repo),
+            "--out-dir", str(out_dir), "--dry-run"]
+
+    with (
+        mock_patch("review_shift.review._invoke_with_timeout") as mock_invoke,
+        mock_patch("review_shift.review._invoke") as mock_invoke_plain,
+        mock_patch("review_shift.review._run_preflight") as mock_preflight,
+    ):
+        exit_code = cli.main(argv)
+
+    assert exit_code == 0
+    mock_invoke.assert_not_called()
+    mock_invoke_plain.assert_not_called()
+    mock_preflight.assert_not_called()
+
+    run_dir = next(p for p in out_dir.iterdir() if p.is_dir() and not p.is_symlink())
+    run_meta = json.loads((run_dir / "run.json").read_text())
+    assert run_meta["cost_usd"] == 0.0
+    assert run_meta["dry_run"] is True
+
+    batch_summary = json.loads(sorted(out_dir.glob("*-batch.json"))[-1].read_text())
+    assert batch_summary["total_cost_usd"] == 0.0
+    assert batch_summary["auth_status"] == "skipped"
+
+
+def test_dry_run_report_names_every_branch_with_base_depth_and_diff_size(
+    three_branch_repo: Path, tmp_path: Path
+):
+    out_dir = tmp_path / "runs"
+    argv = ["run", "--base", "main", "--depth", "medium", "--repo", str(three_branch_repo),
+            "--out-dir", str(out_dir), "--dry-run"]
+    assert cli.main(argv) == 0
+
+    run_dir = next(p for p in out_dir.iterdir() if p.is_dir() and not p.is_symlink())
+    report_text = (run_dir / "report.md").read_text()
+    assert "no review was performed" in report_text.lower()
+    for name in ("feature/a", "feature/b", "feature/c"):
+        assert f"`{name}`" in report_text
+    assert "vs `main`" in report_text
+    assert "depth `medium`" in report_text
+    assert "line(s)" in report_text
+
+    run_meta = json.loads((run_dir / "run.json").read_text())
+    assert len(run_meta["targets"]) == 3
+    assert all(t["diff_lines"] > 0 for t in run_meta["targets"])
+
+
+def test_a_real_run_after_a_dry_run_over_the_same_key_still_reviews(
+    three_branch_repo: Path, tmp_path: Path
+):
+    """The silent failure this flag could cause: using the preview to check tonight's
+    configuration must not cancel tonight's review. A cache hit needs `status == "ok"`; a dry
+    run records something else (dry-run-preview spec "A real run after a dry run still
+    reviews")."""
+    out_dir = tmp_path / "runs"
+    branch_argv = ["run", "--branch", "feature/a", "--base", "main",
+                   "--repo", str(three_branch_repo), "--out-dir", str(out_dir)]
+
+    assert cli.main([*branch_argv, "--dry-run"]) == 0
+    index = json.loads((out_dir / "index.json").read_text())
+    assert [e["status"] for e in index["runs"]] == ["dry_run"]
+    dry_key = index["runs"][0]["idempotency_key"]
+
+    time.sleep(1.1)
+
+    with mock_patch(
+        "review_shift.review._invoke_with_timeout", return_value=(_low_finding_events(), False)
+    ) as mock_invoke:
+        assert cli.main(branch_argv) == 0
+    mock_invoke.assert_called()
+
+    index = json.loads((out_dir / "index.json").read_text())
+    # the real run's entry carries the *same* key -- it is only the status that keeps the dry
+    # run from being served in its place.
+    ok_entries = [e for e in index["runs"] if e["status"] == "ok"]
+    assert len(ok_entries) == 1
+    assert ok_entries[0]["idempotency_key"] == dry_key
+
+
+def test_dry_run_does_not_move_the_latest_pointer(three_branch_repo: Path, tmp_path: Path):
+    out_dir = tmp_path / "runs"
+    branch_argv = ["run", "--branch", "feature/a", "--base", "main",
+                   "--repo", str(three_branch_repo), "--out-dir", str(out_dir)]
+
+    with mock_patch(
+        "review_shift.review._invoke_with_timeout", return_value=(_low_finding_events(), False)
+    ):
+        assert cli.main(branch_argv) == 0
+    latest_after_real = (out_dir / "latest.txt").read_text()
+
+    time.sleep(1.1)
+    assert cli.main([*branch_argv, "--dry-run", "--force"]) == 0
+
+    assert (out_dir / "latest.txt").read_text() == latest_after_real
+
+
+def test_dry_run_base_resolution_failure_fails_like_a_real_run(
+    three_branch_repo: Path, tmp_path: Path
+):
+    """dry-run-preview spec "A failure before the model is still a failure": surfacing these
+    without paying for a review is what the flag is for, so the exit code must not soften."""
+    out_dir = tmp_path / "runs"
+    argv = ["run", "--branch", "feature/a", "--base", "no-such-base",
+            "--repo", str(three_branch_repo), "--out-dir", str(out_dir), "--dry-run"]
+    assert cli.main(argv) == 2

@@ -12,7 +12,11 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-CURRENT_VERSION = 2
+CURRENT_VERSION = 3
+
+# restructure-depth-tiers D3: every level survived the relabel under a new name, so an exact
+# remap always exists and anything less would silently change what a user's nightly run does.
+_V2_TO_V3_DEPTH = {"low": "smoke", "medium": "low", "high": "medium"}
 
 
 class UnrecognizedConfigVersion(RuntimeError):
@@ -31,9 +35,23 @@ def _v1_to_v2(cfg: dict[str, Any]) -> dict[str, Any]:
     return {**cfg, "version": 2, "trunk": trunk}
 
 
+def _v2_to_v3(cfg: dict[str, Any]) -> dict[str, Any]:
+    """Relabels `depth` one rung down (restructure-depth-tiers D3). A v2 config that omits
+    `depth` was running at v2's own default, `medium` -- which is now called `low`; the value
+    is materialized here rather than left to v3's default, which is a rung deeper and would
+    change the run's behavior and its bill without the user touching anything.
+
+    An unrecognised value is left as-is so schema validation refuses it by name, rather than
+    being coerced to a level the user never asked for.
+    """
+    current = cfg.get("depth", "medium")
+    return {**cfg, "version": 3, "depth": _V2_TO_V3_DEPTH.get(current, current)}
+
+
 MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {
     0: _v0_to_v1,
     1: _v1_to_v2,
+    2: _v2_to_v3,
 }
 
 

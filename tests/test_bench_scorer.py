@@ -59,12 +59,12 @@ def test_recall_counts_only_completed_cases():
     case1 = _case([GroundTruthRange(file="a.py", start_line=1, end_line=1)], case_id="c1")
     case2 = _case([GroundTruthRange(file="a.py", start_line=1, end_line=1)], case_id="c2")
     results = [
-        CaseRunResult(case=case1, depth="high", findings=[{"file": "a.py", "line": 1}],
+        CaseRunResult(case=case1, depth="medium", findings=[{"file": "a.py", "line": 1}],
                       cost_usd=1.0, status="ok"),
-        CaseRunResult(case=case2, depth="high", findings=None, cost_usd=0.0,
+        CaseRunResult(case=case2, depth="medium", findings=None, cost_usd=0.0,
                       status="budget_exhausted"),
     ]
-    rate, n = recall(results, "high", tolerance=0)
+    rate, n = recall(results, "medium", tolerance=0)
     assert (rate, n) == (1.0, 1)
 
 
@@ -76,11 +76,11 @@ def test_recall_diff_visible_subset_excludes_invisible_cases():
     invisible = _case([GroundTruthRange(file="a.py", start_line=1, end_line=1)],
                        diff_visible=False, case_id="iv")
     results = [
-        CaseRunResult(case=visible, depth="high", findings=[], cost_usd=1.0, status="ok"),
-        CaseRunResult(case=invisible, depth="high", findings=[], cost_usd=1.0, status="ok"),
+        CaseRunResult(case=visible, depth="medium", findings=[], cost_usd=1.0, status="ok"),
+        CaseRunResult(case=invisible, depth="medium", findings=[], cost_usd=1.0, status="ok"),
     ]
-    _, n_all = recall(results, "high", tolerance=0)
-    _, n_dv = recall(results, "high", tolerance=0, diff_visible_only=True)
+    _, n_all = recall(results, "medium", tolerance=0)
+    _, n_dv = recall(results, "medium", tolerance=0, diff_visible_only=True)
     assert n_all == 2
     assert n_dv == 1
 
@@ -93,7 +93,7 @@ def _run_with_patches(tmp_path, case, names):
     for name in names:
         (patches / name).write_text("diff --git a/a b/a\n")
     return CaseRunResult(
-        case=case, depth="high", findings=[], cost_usd=1.0, status="ok",
+        case=case, depth="medium", findings=[], cost_usd=1.0, status="ok",
         run_dir=tmp_path, repo_dir=tmp_path / "repo", head_sha="deadbeef",
     )
 
@@ -125,6 +125,6 @@ def test_applicability_skips_runs_without_a_run_dir():
 
     case = _case([GroundTruthRange(file="a.py", start_line=1, end_line=1)])
     result = CaseRunResult(
-        case=case, depth="high", findings=None, cost_usd=0.0, status="review_failed",
+        case=case, depth="medium", findings=None, cost_usd=0.0, status="review_failed",
     )
     assert applicability([result], check=lambda *_: True) == (0.0, 0)

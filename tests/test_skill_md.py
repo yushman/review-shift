@@ -28,7 +28,9 @@ def test_canonical_skill_md_exists_with_expected_frontmatter():
 def test_skill_md_documents_the_one_branch_depth_cap():
     text = CANONICAL_SKILL.read_text()
     assert "one branch" in text
-    assert "depth <= medium" in text or "depth: high" in text
+    assert "depth <= low" in text
+    # The retired value must be named as retired, not as a deeper level to reach for.
+    assert "no longer exists" in text
 
 
 def test_skill_md_documents_lock_reuse():
@@ -38,5 +40,5 @@ def test_skill_md_documents_lock_reuse():
 
 def test_skill_md_documents_the_standalone_fallback_recipe():
     text = CANONICAL_SKILL.read_text()
-    assert "review-shift run --branch <branch> --base <base> --depth low" in text
-    assert "review-shift run --trunk --base <base> --depth low" in text
+    assert "review-shift run --branch <branch> --base <base> --depth smoke" in text
+    assert "review-shift run --trunk --base <base> --depth smoke" in text

@@ -63,8 +63,8 @@ that file is the reference. A few fields worth knowing about before you first tu
 
 | Field | Default | |
 |---|---|---|
-| `depth` | `medium` | `low` \| `medium` \| `high` — sets the review prompt, effort and max-findings preset |
-| `scope.full_file_review` | `auto` | `auto` \| `always` \| `never` — overrides depth's default scope; `never` floors it at changed hunks, `always` raises it to full changed files, `auto` follows depth. See Limitations for what this controls at `high` |
+| `depth` | `medium` | `smoke` \| `low` \| `medium` — sets the review prompt, effort and max-findings preset; see the ladder below |
+| `scope.full_file_review` | `auto` | `auto` \| `always` \| `never` — overrides depth's default scope; `never` floors it at changed hunks, `always` raises it to full changed files, `auto` follows depth. See Limitations for what this controls at `medium` |
 | `discovery.patterns` | `[]` | fnmatch globs (or `re:`-prefixed regex) restricting which branches get discovered; empty means "every recently-moved branch" |
 | `discovery.max_age_hours` | `24` | a branch is eligible only if its last commit is within this window |
 | `runtime.budget_usd` | `10.00` | spend cap for one branch's review |
@@ -74,10 +74,52 @@ that file is the reference. A few fields worth knowing about before you first tu
 | `trunk.enabled` | `false` | reviews commits landed directly on the base branch instead of discovering branches — see Trunk review below |
 | `trunk.max_commits_per_run` | `10` | cap on commits reviewed by one trunk run; the rest is picked up the next night |
 
+### Depth
+
+| `depth` | what the model reads | effort | ≈ per branch |
+|---|---|---|---|
+| `smoke` | the changed hunks only | `low` | ~$0.38, ~1 min |
+| `low` | the changed files in full | `medium` | ~$0.52, ~2 min |
+| `medium` | the changed files plus their direct first-level imports | `high` | ~$0.77, ~3.5 min |
+
+New installs default to `medium`. Nightly runs are unattended, so three and a half minutes per
+branch costs nothing a sleeping user notices, and spend stays fused by
+`runtime.total_budget_usd` regardless. Drop to `low` if you review many branches a night, or to
+`smoke` for a fast sanity pass — `smoke` sees only the hunks, which is enough to spot a local
+mistake and not enough to judge how much it matters.
+
+The figures are indicative, measured on a small benchmark corpus; they are not a published
+quality claim (see Limitations).
+
+> **`high` no longer exists.** Up to v0.1.3 the ladder was `low | medium | high`; every level
+> kept its exact behavior and moved one name down (`low`→`smoke`, `medium`→`low`,
+> `high`→`medium`), and `high` was removed rather than aliased — the slot is reserved for a
+> genuinely deeper tier. `--depth high` now fails and says what to write instead. Your
+> `config.yml` needs no edit: a `version: 2` file is migrated in memory on load, remapping
+> `depth` by the same table, and the file on disk is left untouched. The first run after
+> upgrading re-reviews every branch, because the prompt files changed.
+
 Any scalar `runtime`/`discovery`/`patch` field (plus `depth`/`base_branch`) can also be set via
 an env var, `REVIEW_SHIFT__<SECTION>__<FIELD>` (e.g.
 `REVIEW_SHIFT__RUNTIME__AUTH_PREFLIGHT_BUDGET_USD=0.10`). Precedence is config file → env var →
 CLI flag, where a flag exists — `run --depth`/`--model` and a few others override both.
+
+## Previewing a night (`--dry-run`)
+
+```bash
+review-shift run --dry-run
+```
+
+runs discovery, builds each branch's merge-base diff and applies redaction, writes a run
+directory with a report — and makes **no model call at all**, not even the auth preflight, so
+it costs nothing. The report lists every branch that would have been reviewed, the base each
+was compared against, the depth that would have applied and the size of each diff.
+
+It answers what `doctor` cannot: `doctor` proves the environment is healthy, never that
+discovery picked the branches you expected, that the diff builds against the resolved base, or
+that a report renders. A dry run takes the same lock as a real run, never moves the
+`latest` pointer, and can never be served as a cache hit to the real run that follows it — use
+it freely before a night, including on `--trunk`.
 
 ## Trunk review (`--trunk`)
 
@@ -132,7 +174,9 @@ either, since its own auth check is a live call too).
 
 `review-shift` also works from inside a Claude Code session, as a skill that shells out to
 the same CLI (ADR-006) — same prompts, same lock, same report. It is capped to one branch and
-`depth <= medium`. Two ways to get it, not alternatives to pick between:
+`depth <= low`, because an interactive session is not the place for the longest,
+widest-reading review: run `medium` through `review-shift run` instead. Two ways to get it, not
+alternatives to pick between:
 
 ```bash
 # zero marketplace dependency, exact `/review-shift` command, no auto-update
@@ -214,14 +258,14 @@ problems does not look like a broken job.
 - **Secret masking reduces exposure, it does not guarantee it.** Regex heuristics miss custom
   token formats, and the agent has its own filesystem access. Not for code under regulatory
   constraints.
-- **At `depth: high`, the agent reads files outside the branch's changes.** Scope is the
-  changed files plus their direct first-level imports, and the model reaches those imported
-  files with its own `Read`/`Grep`/`Glob`, not through the diff. `scope.exclude_paths` masks
-  secret values in the diff `review-shift` sends — it does not constrain what the agent reads
-  for itself, so an unchanged imported file is outside the redactor's reach. Findings are still
-  confined to the branch's own changed files (an imported file is context, never a report
-  target), but the read itself is wider. Set `scope.full_file_review: never` to run `high`'s
-  prompt and effort without the agent reading beyond the diff.
+- **At `depth: medium` — the default — the agent reads files outside the branch's changes.**
+  Scope is the changed files plus their direct first-level imports, and the model reaches those
+  imported files with its own `Read`/`Grep`/`Glob`, not through the diff. `scope.exclude_paths`
+  masks secret values in the diff `review-shift` sends — it does not constrain what the agent
+  reads for itself, so an unchanged imported file is outside the redactor's reach. Findings are
+  still confined to the branch's own changed files (an imported file is context, never a report
+  target), but the read itself is wider. Set `scope.full_file_review: never` to run `medium`'s
+  prompt and effort without the agent reading beyond the diff, or drop to `low`.
 - **No quality numbers are published yet.** Recall and precision are only claimed once the
   benchmark bench exists (v0.2). What v0.1 measures is patch applicability.
 - **Run artifacts contain code fragments** and live in your working tree.

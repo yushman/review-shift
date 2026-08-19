@@ -1,5 +1,5 @@
 """Load `.review-shift/config.{yml,json}`, merge env and CLI overrides (flags win), validate
-against the `version: 1` schema, and derive `config_hash` — TDR FR-5, ADR-009.
+against the `version: 3` schema, and derive `config_hash` — TDR FR-5, ADR-009.
 """
 from __future__ import annotations
 
@@ -14,7 +14,13 @@ import jsonschema
 import yaml
 
 from review_shift.config import migrations
-from review_shift.config.schema import DEFAULTS, ENV_VAR_PATHS, SCHEMA_V2
+from review_shift.config.schema import (
+    DEFAULTS,
+    DEPTH_VALUES,
+    ENV_VAR_PATHS,
+    SCHEMA_V3,
+    depth_error_message,
+)
 
 __all__ = ["ConfigError", "ConfigValidationError", "LoadedConfig", "load_config"]
 
@@ -86,7 +92,7 @@ def _coerce_env_value(raw: str, schema_type: dict[str, Any]) -> Any:
 
 
 def _schema_for_path(path: tuple[str, ...]) -> dict[str, Any]:
-    node = SCHEMA_V2
+    node = SCHEMA_V3
     for part in path:
         node = node["properties"][part]
     return node
@@ -118,12 +124,19 @@ def load_config(
     env: Mapping[str, str] | None = None,
 ) -> LoadedConfig:
     path = config_path or _find_config_path(repo_root)
-    file_data: dict[str, Any] = _parse_config_file(path) if path else {}
 
-    try:
-        migrated_data, was_migrated = migrations.migrate(file_data)
-    except migrations.UnrecognizedConfigVersion as exc:
-        raise ConfigValidationError(str(exc)) from exc
+    # No config file is not an old config file: there is nothing to migrate, and running the
+    # chain over `{}` would hand a fresh repository whatever value a migration materializes to
+    # preserve an older file's behavior (restructure-depth-tiers' `_v2_to_v3`) instead of the
+    # current template default.
+    if path is None:
+        migrated_data: dict[str, Any] = {}
+        was_migrated = False
+    else:
+        try:
+            migrated_data, was_migrated = migrations.migrate(_parse_config_file(path))
+        except migrations.UnrecognizedConfigVersion as exc:
+            raise ConfigValidationError(str(exc)) from exc
 
     merged = _deep_merge(DEFAULTS, migrated_data)
     merged["version"] = migrations.CURRENT_VERSION
@@ -132,8 +145,17 @@ def load_config(
     if cli_overrides:
         merged = _deep_merge(merged, cli_overrides)
 
+    # Checked ahead of the schema so the refusal names the remap rather than jsonschema's bare
+    # "'high' is not one of [...]" -- a user whose config still says `high` needs to be told
+    # what it became (review-invocation spec "The retired high value is refused, never
+    # downgraded").
+    if merged.get("depth") not in DEPTH_VALUES:
+        raise ConfigValidationError(
+            f"{path or '<no config file>'}: {depth_error_message(merged.get('depth'))}"
+        )
+
     try:
-        jsonschema.validate(merged, SCHEMA_V2)
+        jsonschema.validate(merged, SCHEMA_V3)
     except jsonschema.ValidationError as exc:
         raise ConfigValidationError(f"{path or '<no config file>'}: {exc.message}") from exc
 

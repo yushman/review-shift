@@ -33,9 +33,9 @@ class DepthParams:
 
 # TDR §4 FR-1 / design.md's open question — fixed here, not re-derived per prompt.
 DEPTH_PARAMS = {
-    "low": DepthParams(effort="low", budget_usd=0.50, max_findings=20),
-    "medium": DepthParams(effort="medium", budget_usd=2.00, max_findings=50),
-    "high": DepthParams(effort="high", budget_usd=5.00, max_findings=100),
+    "smoke": DepthParams(effort="low", budget_usd=0.50, max_findings=20),
+    "low": DepthParams(effort="medium", budget_usd=2.00, max_findings=50),
+    "medium": DepthParams(effort="high", budget_usd=5.00, max_findings=100),
 }
 
 # add-depth-high design.md D1: the resolved scope is one of three monotone widths. `full_files`
@@ -48,9 +48,9 @@ SCOPE_FULL_FILES_PLUS_IMPORTS = "full_files_plus_imports"
 _SCOPE_RANK = {SCOPE_HUNKS: 0, SCOPE_FULL_FILES: 1, SCOPE_FULL_FILES_PLUS_IMPORTS: 2}
 
 DEPTH_SCOPE_DEFAULT = {
-    "low": SCOPE_HUNKS,
-    "medium": SCOPE_FULL_FILES,
-    "high": SCOPE_FULL_FILES_PLUS_IMPORTS,
+    "smoke": SCOPE_HUNKS,
+    "low": SCOPE_FULL_FILES,
+    "medium": SCOPE_FULL_FILES_PLUS_IMPORTS,
 }
 
 _SCOPE_OVERRIDE_TEXT = {

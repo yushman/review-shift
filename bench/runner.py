@@ -19,7 +19,7 @@ from bench.scorer import CaseRunResult
 
 __all__ = ["DEPTHS", "RUNS_DIR", "run_case", "run_all"]
 
-DEPTHS = ("low", "medium", "high")
+DEPTHS = ("smoke", "low", "medium")
 RUNS_DIR = WORK_DIR / "runs"
 
 

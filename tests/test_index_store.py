@@ -12,7 +12,12 @@ from pathlib import Path
 from review_shift import index_store
 
 BASE_KEY_ARGS = dict(
-    head_sha="a" * 40, base_sha="b" * 40, depth="medium",
+    head_sha="a" * 40, base_sha="b" * 40, depth="medium", model="sonnet",
+    config_hash="c" * 64, prompt_hash="d" * 64,
+)
+
+TRUNK_KEY_ARGS = dict(
+    commit_sha="a" * 40, depth="medium", model="sonnet",
     config_hash="c" * 64, prompt_hash="d" * 64,
 )
 
@@ -39,6 +44,24 @@ def test_idempotency_key_changes_when_depth_changes():
     k1 = index_store.compute_idempotency_key(**BASE_KEY_ARGS)
     changed = dict(BASE_KEY_ARGS, depth="low")
     assert index_store.compute_idempotency_key(**changed) != k1
+
+
+def test_idempotency_key_changes_when_model_changes():
+    """restructure-depth-tiers: `--model` bypasses `config_hash` entirely, so without the
+    model in the key, re-checking a branch with a stronger model silently returns the weaker
+    model's answer (batch-execution spec "Re-checking a branch with a different model")."""
+    k1 = index_store.compute_idempotency_key(**BASE_KEY_ARGS)
+    changed = dict(BASE_KEY_ARGS, model="opus")
+    assert index_store.compute_idempotency_key(**changed) != k1
+
+
+def test_idempotency_key_takes_the_requested_model_not_a_resolved_one():
+    """D6: the key must be computable before deciding whether to call, so it takes the string
+    as requested. Two spellings of one model therefore miss — a redundant review, which is the
+    correct direction to be wrong in."""
+    alias = index_store.compute_idempotency_key(**dict(BASE_KEY_ARGS, model="sonnet"))
+    full = index_store.compute_idempotency_key(**dict(BASE_KEY_ARGS, model="claude-sonnet-5"))
+    assert alias != full
 
 
 def test_idempotency_key_changes_when_config_hash_changes():
@@ -152,16 +175,22 @@ def test_pre_existing_index_without_watermarks_key_reads_as_absent(tmp_path: Pat
 
 
 def test_trunk_idempotency_key_is_stable_for_same_inputs():
-    args = dict(commit_sha="a" * 40, depth="medium", config_hash="c" * 64, prompt_hash="d" * 64)
-    k1 = index_store.compute_trunk_idempotency_key(**args)
-    k2 = index_store.compute_trunk_idempotency_key(**args)
+    k1 = index_store.compute_trunk_idempotency_key(**TRUNK_KEY_ARGS)
+    k2 = index_store.compute_trunk_idempotency_key(**TRUNK_KEY_ARGS)
     assert k1 == k2
 
 
 def test_trunk_idempotency_key_changes_when_commit_sha_changes():
-    args = dict(commit_sha="a" * 40, depth="medium", config_hash="c" * 64, prompt_hash="d" * 64)
-    k1 = index_store.compute_trunk_idempotency_key(**args)
-    changed = dict(args, commit_sha="e" * 40)
+    k1 = index_store.compute_trunk_idempotency_key(**TRUNK_KEY_ARGS)
+    changed = dict(TRUNK_KEY_ARGS, commit_sha="e" * 40)
+    assert index_store.compute_trunk_idempotency_key(**changed) != k1
+
+
+def test_trunk_idempotency_key_changes_when_model_changes():
+    """trunk-review spec "The same commit re-checked with a different model": the trunk key
+    carries the requested model on the same terms as the branch key."""
+    k1 = index_store.compute_trunk_idempotency_key(**TRUNK_KEY_ARGS)
+    changed = dict(TRUNK_KEY_ARGS, model="opus")
     assert index_store.compute_trunk_idempotency_key(**changed) != k1
 
 
@@ -169,10 +198,9 @@ def test_trunk_idempotency_key_unchanged_when_base_head_advances():
     """The trunk key takes no `base_sha` at all (design.md D6) — a commit reviewed under one
     base head and re-enumerated after the base head has since advanced must produce the exact
     same key, unlike the branch key which depends on `base_sha`."""
-    args = dict(commit_sha="a" * 40, depth="medium", config_hash="c" * 64, prompt_hash="d" * 64)
-    key_before = index_store.compute_trunk_idempotency_key(**args)
+    key_before = index_store.compute_trunk_idempotency_key(**TRUNK_KEY_ARGS)
     # "base head advanced" is simply not a parameter this function accepts -- recomputing with
     # the same commit/depth/config/prompt after any number of new base-branch commits is the
     # same call.
-    key_after = index_store.compute_trunk_idempotency_key(**args)
+    key_after = index_store.compute_trunk_idempotency_key(**TRUNK_KEY_ARGS)
     assert key_before == key_after

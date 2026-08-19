@@ -19,6 +19,7 @@ from typing import Any
 
 from review_shift import batch, discover, doctor, gitutil, launchd_ops, redact
 from review_shift import config as config_module
+from review_shift.config import schema as config_schema
 from review_shift.exitcodes import EXIT_INTERNAL_ERROR, EXIT_OK
 
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
@@ -26,6 +27,16 @@ PLUGIN_SKILL_PATH = (
     Path(__file__).resolve().parent / "plugin" / "skills" / "review-shift" / "SKILL.md"
 )
 GIT_EXCLUDE_ENTRY = ".review-shift/runs/"
+
+
+def _depth_arg(value: str) -> str:
+    """`choices=` would refuse a retired level with argparse's bare "invalid choice", which
+    tells a user whose script says `--depth high` nothing about where `high` went. cli-surface
+    spec: a removed enum value fails naming the accepted set *and* what the old value maps to
+    (restructure-depth-tiers D2 — never silently aliased to a surviving level)."""
+    if value not in config_schema.DEPTH_VALUES:
+        raise argparse.ArgumentTypeError(config_schema.depth_error_message(value))
+    return value
 
 
 def _discover_branches(
@@ -63,6 +74,13 @@ def cmd_run(args: argparse.Namespace) -> int:
     # depth comes from config (config-loading spec "CLI flag overrides file value") -- this is
     # also what lets `depth: high` set only in config.yml take effect (add-depth-high).
     depth = args.depth if args.depth is not None else loaded.data["depth"]
+
+    # Same pattern, and for the same reason: an eager argparse default here would shadow both
+    # `runtime.model` and its `REVIEW_SHIFT__RUNTIME__MODEL` override, so every run would use
+    # `sonnet` however the config was written. That is quiet rather than loud -- the run
+    # succeeds, `model_resolved` honestly records sonnet, and only the bill or a missing
+    # finding says the requested model never ran.
+    model = args.model if args.model is not None else loaded.data["runtime"]["model"]
 
     # `--base` is an explicit override; omitted, the effective base_branch comes from config
     # (default "auto"), which resolves to origin/HEAD (batch-execution spec "base_branch:
@@ -107,13 +125,14 @@ def cmd_run(args: argparse.Namespace) -> int:
             branches=[],
             base=base,
             depth=depth,
-            model=args.model,
+            model=model,
             loaded=loaded,
             exclude_paths=exclude_paths,
             discovery_skipped=[],
             force=args.force,
             exit_zero_on_findings=exit_zero_on_findings,
             trunk=True,
+            dry_run=args.dry_run,
         )
 
     if args.branch:
@@ -138,12 +157,13 @@ def cmd_run(args: argparse.Namespace) -> int:
         branches=branches,
         base=base,
         depth=depth,
-        model=args.model,
+        model=model,
         loaded=loaded,
         exclude_paths=exclude_paths,
         discovery_skipped=discovery_skipped,
         force=args.force,
         exit_zero_on_findings=exit_zero_on_findings,
+        dry_run=args.dry_run,
     )
 
 
@@ -197,9 +217,24 @@ def _print_doctor_checks(checks: list[doctor.DoctorCheck]) -> None:
         print(f"[{status}] {check.name}: {check.detail}")
 
 
+def _doctor_model(args: argparse.Namespace, repo_root: Path) -> str:
+    """The auth-liveness check is only worth anything if it exercises the model the nightly run
+    will actually use, so an omitted `--model` falls back to `runtime.model` like `run` does.
+    A config too broken to load is not a reason to skip the rest of doctor -- that is precisely
+    what doctor exists to report -- so this falls back to the built-in default and lets
+    `check_config_version` be the one to name the problem."""
+    if args.model is not None:
+        return str(args.model)
+    try:
+        loaded = config_module.load_config(repo_root, env=os.environ)
+    except config_module.ConfigError:
+        return str(config_schema.DEFAULTS["runtime"]["model"])
+    return str(loaded.data["runtime"]["model"])
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     repo_root = Path(args.repo).resolve() if args.repo else Path.cwd()
-    checks = doctor.run_doctor(repo_root, model=args.model)
+    checks = doctor.run_doctor(repo_root, model=_doctor_model(args, repo_root))
     _print_doctor_checks(checks)
     return EXIT_OK if all(c.ok for c in checks) else EXIT_INTERNAL_ERROR
 
@@ -214,13 +249,14 @@ def cmd_init_launchd(args: argparse.Namespace) -> int:
     launchd_cfg = loaded.data["launchd"]
     hour = args.hour if args.hour is not None else launchd_cfg["hour"]
     minute = args.minute if args.minute is not None else launchd_cfg["minute"]
+    model = args.model if args.model is not None else loaded.data["runtime"]["model"]
 
     # Same checks as `doctor` (ADR-005): "not installed yet" reads as a pass for the
     # plist/pmset-agreement checks (doctor.py's module docstring), so this gate holds even
     # for the very first install — there is no separate, narrower precondition list.
     checks = doctor.run_doctor(
         repo_root, plist_path=launchd_ops.PLIST_PATH, log_dir=launchd_ops.LOG_DIR,
-        model=args.model,
+        model=model,
     )
     if not all(c.ok for c in checks):
         _print_doctor_checks(checks)
@@ -280,8 +316,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="base branch (default: config's base_branch, itself defaulting to auto -> "
         "origin/HEAD)",
     )
-    run_p.add_argument("--depth", choices=["low", "medium", "high"], default=None)
-    run_p.add_argument("--model", default="sonnet")
+    run_p.add_argument(
+        "--depth", type=_depth_arg, default=None,
+        help="smoke | low | medium (default: config's depth)",
+    )
+    run_p.add_argument(
+        "--model", default=None, help="default: config's runtime.model (sonnet)",
+    )
     run_p.add_argument("--repo", default=None, help="repo root (default: cwd)")
     run_p.add_argument(
         "--out-dir", default=None, help="run directory root (default: <repo>/.review-shift/runs)"
@@ -299,6 +340,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="review commits landed directly on the resolved base branch instead of "
         "discovering branches (overrides trunk.enabled from config; the two targets are "
         "never combined in one run)",
+    )
+    run_p.add_argument(
+        "--dry-run", action="store_true",
+        help="run discovery, the diff, redaction and the report with zero model calls and "
+        "zero cost; leaves the latest-run pointer alone and never satisfies a later run's "
+        "idempotency cache",
     )
     run_p.add_argument(
         "--exit-zero-on-findings", action="store_true",
@@ -320,7 +367,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--minute", type=int, default=None, help="default: config's launchd.minute",
     )
     launchd_p.add_argument(
-        "--model", default="sonnet", help="model used for the doctor gate's auth check",
+        "--model", default=None,
+        help="model used for the doctor gate's auth check (default: config's runtime.model)",
     )
     launchd_p.add_argument(
         "--force-pmset", action="store_true",
@@ -339,7 +387,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     doctor_p = sub.add_parser("doctor", help="check the environment before a scheduled run")
     doctor_p.add_argument("--repo", default=None, help="repo root (default: cwd)")
-    doctor_p.add_argument("--model", default="sonnet", help="model used for the auth check")
+    doctor_p.add_argument(
+        "--model", default=None,
+        help="model used for the auth check (default: config's runtime.model)",
+    )
 
     parser.add_argument(
         "--version", action="version",

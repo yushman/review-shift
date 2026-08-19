@@ -497,15 +497,18 @@ def test_max_commits_per_run_cap_defers_remainder(trunk_repo: Path, tmp_path: Pa
     assert index["watermarks"]["main"]["sha"] == shas[1]
 
 
-def test_trunk_high_depth_narrows_to_the_commits_own_changes(trunk_repo: Path, tmp_path: Path):
-    """add-depth-high design.md D3, trunk path (tasks.md 3.8): the narrowed `repo_files` uses
-    the commit's own changed files, not the whole tree at that commit -- `f.txt` exists in the
-    tree at `c1` (carried over from the bootstrap commit) but `c1` itself only added `c1.txt`,
-    so a finding against `f.txt` must fail validation at `high`."""
+def test_trunk_medium_depth_narrows_to_the_commits_own_changes(
+    trunk_repo: Path, tmp_path: Path
+):
+    """add-depth-high design.md D3, trunk path (tasks.md 3.8), keyed on `medium` since the
+    ladder was relabelled: the narrowed `repo_files` uses the commit's own changed files, not
+    the whole tree at that commit -- `f.txt` exists in the tree at `c1` (carried over from the
+    bootstrap commit) but `c1` itself only added `c1.txt`, so a finding against `f.txt` must
+    fail validation at `medium`."""
     out_dir = tmp_path / "runs"
     argv = [
         "run", "--trunk", "--base", "main", "--repo", str(trunk_repo), "--out-dir", str(out_dir),
-        "--depth", "high",
+        "--depth", "medium",
     ]
     cli.main(argv)  # bootstrap
     time.sleep(1.1)
@@ -520,3 +523,58 @@ def test_trunk_high_depth_narrows_to_the_commits_own_changes(trunk_repo: Path, t
     run_meta = json.loads((run_dir / "run.json").read_text())
     statuses = {u["sha"]: u["status"] for u in run_meta["units"]}
     assert statuses[c1] == "invalid"
+
+
+# --- restructure-depth-tiers: --dry-run on the trunk path ---------------------------------
+
+
+def test_trunk_dry_run_neither_calls_the_model_nor_moves_the_watermark(
+    trunk_repo: Path, tmp_path: Path
+):
+    """The trunk equivalent of "a preview must not cancel the night": bootstrapping the
+    watermark on a dry run would make the next real run report `nothing_new` and review
+    nothing at all."""
+    out_dir = tmp_path / "runs"
+    argv = ["run", "--trunk", "--base", "main", "--repo", str(trunk_repo),
+            "--out-dir", str(out_dir)]
+
+    with mock_patch("review_shift.review._invoke_with_timeout") as mock_invoke:
+        assert cli.main([*argv, "--dry-run"]) == 0
+    mock_invoke.assert_not_called()
+
+    index = json.loads((out_dir / "index.json").read_text())
+    assert "main" not in index.get("watermarks", {})
+
+    time.sleep(1.1)
+
+    # the real run still gets to bootstrap, exactly as if the preview had never happened
+    assert cli.main(argv) == 0
+    index = json.loads((out_dir / "index.json").read_text())
+    assert index["watermarks"]["main"]["sha"] == _rev(trunk_repo, "main")
+
+
+def test_trunk_dry_run_lists_the_commits_it_would_have_reviewed(
+    trunk_repo: Path, tmp_path: Path
+):
+    out_dir = tmp_path / "runs"
+    argv = ["run", "--trunk", "--base", "main", "--repo", str(trunk_repo),
+            "--out-dir", str(out_dir)]
+    assert cli.main(argv) == 0  # bootstrap the watermark with a real run
+    time.sleep(1.1)
+
+    c1 = _new_file_commit(trunk_repo, "c1.txt", "v1\n", "c1")
+
+    with mock_patch("review_shift.review._invoke_with_timeout") as mock_invoke:
+        assert cli.main([*argv, "--dry-run"]) == 0
+    mock_invoke.assert_not_called()
+
+    run_dir = _run_dirs(out_dir)[-1]
+    run_meta = json.loads((run_dir / "run.json").read_text())
+    assert {u["sha"]: u["status"] for u in run_meta["units"]} == {c1: "dry_run"}
+    report_text = (run_dir / "report.md").read_text()
+    assert "no review was performed" in report_text.lower()
+    assert c1 in report_text
+
+    # the watermark did not advance past the commit the preview listed
+    index = json.loads((out_dir / "index.json").read_text())
+    assert index["watermarks"]["main"]["sha"] != c1

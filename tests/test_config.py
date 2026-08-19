@@ -16,7 +16,7 @@ def _write(path: Path, text: str) -> None:
 
 
 MINIMAL_YAML = """
-version: 2
+version: 3
 depth: medium
 discovery:
   patterns: ["feature/*"]
@@ -29,7 +29,7 @@ def test_loads_minimal_config(tmp_path: Path):
 
     loaded = config.load_config(tmp_path)
 
-    assert loaded.data["version"] == 2
+    assert loaded.data["version"] == 3
     assert loaded.data["depth"] == "medium"
     assert loaded.data["discovery"]["patterns"] == ["feature/*"]
     # defaults filled in for everything the file omitted
@@ -40,7 +40,7 @@ def test_loads_minimal_config(tmp_path: Path):
 
 def test_missing_config_file_uses_all_defaults(tmp_path: Path):
     loaded = config.load_config(tmp_path)
-    assert loaded.data["version"] == 2
+    assert loaded.data["version"] == 3
     assert loaded.data["depth"] == "medium"
     assert loaded.data["discovery"]["patterns"] == []
     assert loaded.data["discovery"]["discover_all"] is False
@@ -62,7 +62,8 @@ def test_json_config_is_also_supported(tmp_path: Path):
     cfg_path = tmp_path / ".review-shift" / "config.json"
     _write(cfg_path, json.dumps({"version": 1, "depth": "low"}))
     loaded = config.load_config(tmp_path)
-    assert loaded.data["depth"] == "low"
+    # v1 `low` is v3 `smoke` -- migrated through _v2_to_v3's exact remap.
+    assert loaded.data["depth"] == "smoke"
 
 
 def test_unknown_field_fails_loudly(tmp_path: Path):
@@ -148,15 +149,15 @@ def test_trunk_enabled_can_be_set_via_config(tmp_path: Path):
 
 def test_cli_flag_overrides_file_value(tmp_path: Path):
     cfg_path = tmp_path / ".review-shift" / "config.yml"
-    _write(cfg_path, "version: 1\ndepth: low\n")
+    _write(cfg_path, "version: 3\ndepth: smoke\n")
 
-    loaded = config.load_config(tmp_path, cli_overrides={"depth": "medium"})
-    assert loaded.data["depth"] == "medium"
+    loaded = config.load_config(tmp_path, cli_overrides={"depth": "low"})
+    assert loaded.data["depth"] == "low"
 
 
 def test_env_overrides_file_but_flag_overrides_env(tmp_path: Path):
     cfg_path = tmp_path / ".review-shift" / "config.yml"
-    _write(cfg_path, "version: 1\ndepth: low\n")
+    _write(cfg_path, "version: 3\ndepth: smoke\n")
 
     loaded = config.load_config(
         tmp_path, env={"REVIEW_SHIFT__DEPTH": "medium"}
@@ -174,8 +175,8 @@ def test_env_overrides_file_but_flag_overrides_env(tmp_path: Path):
 def test_config_hash_same_for_equivalent_config_from_different_sources(tmp_path: Path):
     repo_a = tmp_path / "a"
     repo_b = tmp_path / "b"
-    _write(repo_a / ".review-shift" / "config.yml", "version: 1\ndepth: medium\n")
-    _write(repo_b / ".review-shift" / "config.yml", "version: 1\n")
+    _write(repo_a / ".review-shift" / "config.yml", "version: 3\ndepth: medium\n")
+    _write(repo_b / ".review-shift" / "config.yml", "version: 3\n")
 
     loaded_a = config.load_config(repo_a)
     loaded_b = config.load_config(repo_b, cli_overrides={"depth": "medium"})
@@ -184,7 +185,7 @@ def test_config_hash_same_for_equivalent_config_from_different_sources(tmp_path:
 
 
 def test_config_hash_differs_when_effective_config_differs(tmp_path: Path):
-    _write(tmp_path / ".review-shift" / "config.yml", "version: 1\ndepth: medium\n")
+    _write(tmp_path / ".review-shift" / "config.yml", "version: 3\ndepth: medium\n")
     loaded_medium = config.load_config(tmp_path)
     loaded_low = config.load_config(tmp_path, cli_overrides={"depth": "low"})
     assert loaded_medium.config_hash != loaded_low.config_hash
@@ -197,7 +198,7 @@ def test_old_version_migrates_in_memory_without_touching_disk(tmp_path: Path):
 
     loaded = config.load_config(tmp_path)
 
-    assert loaded.data["version"] == 2
+    assert loaded.data["version"] == 3
     assert loaded.migrated is True
     assert cfg_path.read_text() == original_text  # untouched on disk
 
@@ -211,7 +212,7 @@ def test_unrecognized_version_fails_loudly(tmp_path: Path):
 
 
 def test_current_version_is_not_reported_as_migrated(tmp_path: Path):
-    _write(tmp_path / ".review-shift" / "config.yml", "version: 2\n")
+    _write(tmp_path / ".review-shift" / "config.yml", "version: 3\n")
     loaded = config.load_config(tmp_path)
     assert loaded.migrated is False
 
@@ -226,7 +227,7 @@ def test_v1_config_migrates_to_v2_with_trunk_defaults_without_touching_disk(tmp_
 
     loaded = config.load_config(tmp_path)
 
-    assert loaded.data["version"] == 2
+    assert loaded.data["version"] == 3
     assert loaded.migrated is True
     assert loaded.data["trunk"] == {"enabled": False, "max_commits_per_run": 10}
     assert cfg_path.read_text() == original_text  # untouched on disk
@@ -239,7 +240,7 @@ def test_migrate_unversioned_to_current():
     from review_shift.config import migrations
 
     migrated, was_migrated = migrations.migrate({"depth": "medium"})
-    assert migrated["version"] == 2
+    assert migrated["version"] == 3
     assert was_migrated is True
 
 
@@ -248,16 +249,66 @@ def test_migrate_v1_to_v2_inserts_trunk_defaults():
 
     migrated, was_migrated = migrations.migrate({"version": 1, "depth": "medium"})
     assert was_migrated is True
-    assert migrated["version"] == 2
+    assert migrated["version"] == 3
     assert migrated["trunk"] == {"enabled": False, "max_commits_per_run": 10}
 
 
 def test_migrate_current_version_is_noop():
     from review_shift.config import migrations
 
-    migrated, was_migrated = migrations.migrate({"version": 2, "depth": "medium"})
+    migrated, was_migrated = migrations.migrate({"version": 3, "depth": "medium"})
     assert was_migrated is False
-    assert migrated == {"version": 2, "depth": "medium"}
+    assert migrated == {"version": 3, "depth": "medium"}
+
+
+# --- config-loading spec: "Migration remaps depth to the relabelled ladder" ---------------
+
+
+@pytest.mark.parametrize(
+    "old,new", [("low", "smoke"), ("medium", "low"), ("high", "medium")]
+)
+def test_v2_to_v3_remaps_every_depth_one_rung_down(old: str, new: str):
+    from review_shift.config import migrations
+
+    migrated, was_migrated = migrations.migrate({"version": 2, "depth": old})
+    assert was_migrated is True
+    assert migrated["version"] == 3
+    assert migrated["depth"] == new
+
+
+def test_v2_to_v3_materializes_the_old_default_when_depth_is_absent():
+    """A v2 config that never named a depth was running at v2's own default, `medium`, which
+    is now `low`. Leaving it to v3's default would silently deepen the run and its bill."""
+    from review_shift.config import migrations
+
+    migrated, _ = migrations.migrate({"version": 2})
+    assert migrated["depth"] == "low"
+
+
+def test_v2_config_with_high_migrates_and_keeps_its_behavior(tmp_path: Path):
+    cfg_path = tmp_path / ".review-shift" / "config.yml"
+    original_text = "version: 2\ndepth: high\n"
+    _write(cfg_path, original_text)
+
+    loaded = config.load_config(tmp_path)
+
+    assert loaded.data["depth"] == "medium"
+    assert loaded.migrated is True
+    assert cfg_path.read_text() == original_text  # untouched on disk
+
+
+def test_v3_config_with_a_retired_depth_is_refused_not_coerced(tmp_path: Path):
+    """The remap is a migration, not a coercion: a hand-edited current-version config naming
+    `high` must fail with the accepted values and what `high` became, never quietly run at
+    `medium` (review-invocation spec "The retired high value is refused, never downgraded")."""
+    cfg_path = tmp_path / ".review-shift" / "config.yml"
+    _write(cfg_path, "version: 3\ndepth: high\n")
+
+    with pytest.raises(config.ConfigValidationError) as excinfo:
+        config.load_config(tmp_path)
+    message = str(excinfo.value)
+    assert "smoke, low, medium" in message
+    assert "`high` is now `medium`" in message
 
 
 def test_migrate_unrecognized_version_raises():

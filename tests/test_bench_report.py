@@ -17,7 +17,7 @@ def _case(case_id: str, repo: str = "pydantic") -> Case:
 def _results(n: int) -> list[CaseRunResult]:
     return [
         CaseRunResult(
-            case=_case(f"c{i}"), depth="high", findings=[{"file": "a.py", "line": 1}],
+            case=_case(f"c{i}"), depth="medium", findings=[{"file": "a.py", "line": 1}],
             cost_usd=0.5, status="ok",
         )
         for i in range(n)
@@ -59,7 +59,7 @@ def test_report_shows_failed_cases_not_completed():
     results = _results(2)
     results.append(
         CaseRunResult(
-            case=_case("c-failed"), depth="high", findings=None, cost_usd=0.0,
+            case=_case("c-failed"), depth="medium", findings=None, cost_usd=0.0,
             status="budget_exhausted", reason=None,
         )
     )

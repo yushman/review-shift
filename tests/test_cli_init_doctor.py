@@ -47,7 +47,7 @@ def test_init_writes_config_and_git_exclude(repo: Path):
     config_path = repo / ".review-shift" / "config.yml"
     assert config_path.exists()
     loaded = yaml.safe_load(config_path.read_text())
-    assert loaded["version"] == 2
+    assert loaded["version"] == 3
 
     exclude = (repo / ".git" / "info" / "exclude").read_text()
     assert ".review-shift/runs/" in exclude
@@ -65,23 +65,23 @@ def test_init_does_not_touch_gitignore(repo: Path):
 def test_init_is_idempotent_without_force(repo: Path):
     cli.main(["init", "--repo", str(repo)])
     config_path = repo / ".review-shift" / "config.yml"
-    config_path.write_text("version: 1\ndepth: low\n")
+    config_path.write_text("version: 3\ndepth: smoke\n")
 
     rc = cli.main(["init", "--repo", str(repo)])
 
     assert rc == 0
-    assert "depth: low" in config_path.read_text()
+    assert "depth: smoke" in config_path.read_text()
 
 
 def test_init_force_overwrites_existing_config(repo: Path):
     cli.main(["init", "--repo", str(repo)])
     config_path = repo / ".review-shift" / "config.yml"
-    config_path.write_text("version: 1\ndepth: low\n")
+    config_path.write_text("version: 3\ndepth: smoke\n")
 
     rc = cli.main(["init", "--repo", str(repo), "--force"])
 
     assert rc == 0
-    assert "depth: low" not in config_path.read_text()
+    assert "depth: smoke" not in config_path.read_text()
 
 
 def test_init_running_twice_does_not_duplicate_exclude_entry(repo: Path):
