@@ -1,0 +1,28 @@
+id: pydantic-003-hash-mode
+repo: pydantic
+fix_sha: 220cd3d21c6192eee72ecf8a4d5636f6931fd7f8
+introducing_sha: b095cd4a9fa1d9ad8549580cd0b4ccd9d36e96ef
+diff_visible: true
+confirmed_at: '2026-08-19T10:02:38Z'
+note: |
+  fix subject: Fix `__hash__` in `WithJsonSchema` and `Examples` to hash the mode value (#13428)
+
+  Assessment (agent proposal, not a confirmation): both `WithJsonSchema.__hash__` and
+  `Examples.__hash__` returned `hash(type(self.mode))` -- hashing the *type* of the mode
+  attribute, not its value -- so two instances with different `mode` values but the same type
+  collided, and (worse) violated the hash/eq contract given both classes compare `mode` by
+  value in `__eq__`. introducing_sha (b095cd4a, "Add `__hash__` for `WithJsonSchema` and
+  `Examples`", #6414) is the commit that added both broken methods verbatim -- high confidence.
+  Ground truth is two single-line, disjoint ranges (2112 and 2142) after fixing a bug I found in
+  `derive.py` during this drafting pass: the first version of the tool collapsed non-contiguous
+  blamed lines to one min-max span, which for this case produced a misleading ~30-line range
+  spanning both classes' methods instead of two 1-line ones (see derive.py's `_contiguous_runs`
+  and its docstring). diff_visible: true, though whether `hash(type(x))` vs `hash(x))` reads as
+  wrong on a diff without also seeing `__eq__` is a judgment call.
+ground_truth:
+- file: pydantic/json_schema.py
+  start_line: 2112
+  end_line: 2112
+- file: pydantic/json_schema.py
+  start_line: 2142
+  end_line: 2142

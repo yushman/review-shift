@@ -1,0 +1,25 @@
+id: cli-003-oauth-scopes-trim
+repo: cli
+fix_sha: 92ae1de0355368b3d6d1c361362dc524fe98498b
+introducing_sha: a4f96d29e32214c13a0f5c5830a39a714bea94ba
+diff_visible: true
+confirmed_at: '2026-08-19T10:02:38Z'
+note: |
+  fix subject: fix(release create): trim spaces when parsing X-Oauth-Scopes
+
+  Assessment (agent proposal, not a confirmation): `tokenHasWorkflowScope` compared each raw
+  comma-split scope string against `"workflow"` without trimming, but GitHub's API returns
+  scopes separated by ", " (comma-space), so the check never matched and a granted `workflow`
+  scope was reported as absent. introducing_sha (a4f96d29, "Refactor `workflow` scope checking")
+  is the commit that introduced this exact untrimmed comparison -- high confidence. The tool
+  originally derived two ground-truth lines here: 11 (an unused `"slices"` import removed by the
+  same fix commit, purely incidental) and 296 (the actual buggy comparison). I dropped the line
+  11 entry by hand -- it is not the defect, just a same-commit tidy-up, and leaving it in would
+  let an unrelated finding count as a hit. Same DISAGREEMENT pattern as cli-002: the mechanical
+  first pass would have picked the test file's commit (68f3ef79cadf) before the `_is_test_file`
+  fix; the corrected tool already excludes it here. diff_visible: true, a straightforward
+  "didn't account for the separator's whitespace" bug visible on read.
+ground_truth:
+- file: pkg/cmd/release/create/http.go
+  start_line: 296
+  end_line: 296

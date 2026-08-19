@@ -2,6 +2,7 @@
 *.iml
 .claude
 tmp
+bench/.work/
 
 # Python
 __pycache__

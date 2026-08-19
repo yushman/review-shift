@@ -1,0 +1,29 @@
+id: duckduckgo-001-cert-preserve
+repo: duckduckgo-android
+fix_sha: 3501e030e6a27ca68ad6d6c516a229ddcc951450
+introducing_sha: 110512a8543bd4f6d0fee7694901e414ba9baf71
+diff_visible: true
+confirmed_at: null
+note: |
+  fix subject: Preserve certificate for same-origin navigations (#9230)
+
+  Assessment (agent proposal, not a confirmation) -- NOT RECOMMENDED, reject if reviewing this
+  batch: the fix is almost entirely additive (~21 new lines implementing certificate
+  preservation behind a new remote flag). WebView reports SPA in-page navigations as new page
+  loads, which rebuilds `Site` with a null certificate and no follow-up progress callback to
+  repopulate it, so the Privacy Dashboard wrongly showed an invalid-certificate state. But the
+  bug is an *absence* of logic, not a wrong line -- there is no prior buggy line for `git blame`
+  to find. The single removed line the fix touches elsewhere in the same file is an unrelated
+  local-variable inlining inside a helper (`sameOrigin`), and blaming it produced
+  introducing_sha=110512a8 ("Create Browser-UI module, move Autocomplete") and the ground-truth
+  line below -- neither has anything to do with the actual defect. This is not a one-off
+  derive.py bug like cli-002/cli-003: D3's blame-of-removed-lines method is structurally
+  inapplicable to "missing behavior" defects whose fix is pure addition, and I don't have a
+  mechanical fix for that class in this change -- it needs either a different fix-commit filter
+  (favor fixes with a real removed/changed line) or a human picking the anchor manually.
+  diff_visible: technically true in that the flow gap is visible on a careful diff read, but
+  given the ground-truth line itself is wrong, this case should not be confirmed as drafted.
+ground_truth:
+- file: app/src/main/java/com/duckduckgo/app/browser/BrowserTabViewModel.kt
+  start_line: 3271
+  end_line: 3271

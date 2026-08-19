@@ -1,0 +1,43 @@
+id: pydantic-002-pep695-discriminator
+repo: pydantic
+fix_sha: 9b4d952c59d64b940a0a2559299aff81243e1ded
+introducing_sha: ddb1a68118f6c4e1d5bc4c59a2479afe36bb5165
+diff_visible: true
+confirmed_at: null
+note: |
+  REJECTED at confirmation (2026-08-19), left unconfirmed on purpose: the ground-truth anchor is
+  wrong. Line 3075 in the introducing tree is the `_convert_schema` signature, and the fix's only
+  involvement with it is reformatting it to accept a new `definitions` parameter. The actual
+  defect -- refs not being resolved when a callable discriminator is applied without a `handler`
+  -- lives elsewhere, and the line the fix removes (`if handler is not None and
+  original_schema['type'] == 'definition-ref':`) does not even exist in the introducing commit's
+  tree, so the blame anchor is unreliable here. A correct finding about this defect would land
+  away from the recorded range and be scored a miss.
+
+  Same failure family as duckduckgo-001: the fix is predominantly additive (new parameter, new
+  `_resolve_ref` helper), so blame-of-removed-lines falls through to formatting. Two of eight
+  drafted cases rejected for this reason is a real measurement of the derivation method's yield,
+  recorded in design.md D3 and ADR-015.
+
+  fix subject: Fix support for callable discriminators with PEP 695 type aliases (#13604)
+
+  Assessment (agent proposal, not a confirmation): `Discriminator._convert_schema()` resolved a
+  deferred `definition-ref` schema only via `handler.resolve_ref_schema()`, which is set on the
+  field-generation path but not on the `apply_discriminator()` path used for PEP 695 type
+  aliases / callable discriminators -- that path passes `definitions` instead, which the old
+  code never consulted, so deferred refs on a PEP 695 alias failed to resolve. Checked the
+  DISAGREEMENT by hand: the other candidate (a9cebd421744, "Allow str as argument to
+  Discriminator", Nov 2023) only renamed an imported type in a `TYPE_CHECKING` block on the
+  same line number by coincidence -- unrelated to the actual defect, so the tool's agreement
+  filter correctly dropped it. The kept introducing commit (ddb1a68118f6, "Allow callable
+  discriminator to be applied on PEP 695 type aliases", #11941) is exactly the PR that first
+  wired up this code path, and is high confidence. diff_visible: true, though the handler-vs-
+  definitions duality is subtle enough that I'm not fully confident every reviewer would catch
+  it from the diff alone -- borderline.
+ground_truth:
+- file: pydantic/types.py
+  start_line: 3075
+  end_line: 3075
+- file: pydantic/types.py
+  start_line: 3093
+  end_line: 3100

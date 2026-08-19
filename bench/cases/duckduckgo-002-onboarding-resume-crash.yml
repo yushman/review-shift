@@ -1,0 +1,25 @@
+id: duckduckgo-002-onboarding-resume-crash
+repo: duckduckgo-android
+fix_sha: 718fd1c547fc8ae0e1955611d17b69fb5e0a7ef0
+introducing_sha: 99bfad9f6ace815a647e40bbe26ebbc642601fe9
+diff_visible: true
+confirmed_at: '2026-08-19T10:02:38Z'
+note: |
+  fix subject: Fix crash on new-user onboarding when resuming into a browser-hosted step (#9213)
+
+  Assessment (agent proposal, not a confirmation): `LaunchViewModel.showOnboardingOrHome`'s
+  `when` over the current onboarding step's host had an `else` branch that threw
+  `IllegalArgumentException("unsupported initial onboarding host transition")`, with a comment
+  "extend to support initial hosts in the future" -- an intentionally incomplete branch that a
+  later feature (a `BrowserActivity`-hosted onboarding step) hit in practice when a user
+  backgrounded the app mid-step and reopened it. introducing_sha ("Remove
+  linearOnboardingOrchestrator feature flag", #9160) is the commit whose diff, at
+  `-U0`, removed exactly this `else -> throw` block -- high confidence it is the point where the
+  incomplete branch became reachable in production rather than gated behind a flag. This is the
+  cleanest case in this batch to reason about: the commit message documents its own root cause
+  in detail. diff_visible: true -- an explicit "extend... in the future" `else -> throw` is
+  about as visible a review-catchable pattern as this corpus produced.
+ground_truth:
+- file: app/src/main/java/com/duckduckgo/app/launch/LaunchViewModel.kt
+  start_line: 92
+  end_line: 94

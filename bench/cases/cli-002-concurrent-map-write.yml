@@ -1,0 +1,33 @@
+id: cli-002-concurrent-map-write
+repo: cli
+fix_sha: 74e779140c472bc380ce57978853480805dc16b7
+introducing_sha: 64f4660ec71a46a7c7089ca81c0366de4cc9b000
+diff_visible: true
+confirmed_at: '2026-08-19T10:02:38Z'
+note: |
+  fix subject: Fix concurrent map writes in codespace port forwarding (#13313)
+
+  Assessment (agent proposal, not a confirmation): `TunnelManager` operations from the
+  dev-tunnels library mutate shared state and are not goroutine-safe, but `ForwardPort`,
+  `ListPorts` and related methods called them from multiple goroutines without a lock, causing
+  concurrent map writes. introducing_sha (64f4660ec71a, "Migrate all Codespaces operations from
+  Live Share to Dev Tunnels", #8149) is a large migration commit; the fix's three separate
+  `ManagerMu.Lock()` insertions each blame back to it in the implementation file. This case is
+  also where I found and fixed a real bug in `derive.py`: the first draft picked the *test*
+  file's commit (ad089d48d9f6) as `introducing_sha` because the original tool summed blamed-line
+  counts across all touched files, and the test file had more matching lines than the small
+  implementation-file diff -- pointing ground truth at test code, not the bug. Added a
+  test-file exclusion to the dominant-commit vote in `bench/derive.py` (`_is_test_file`) after
+  finding this; corrected here as a direct result. Confidence in the corrected introducing
+  commit is good, but it is a large migration (the whole subsystem was written without locking,
+  not one narrow mistake), so "introducing commit" here really means "when this went in without
+  synchronization." diff_visible: I set true, but with real uncertainty -- catching a missing
+  lock on a third-party API's documented-elsewhere thread-safety requirement is a harder ask of
+  a diff-only reviewer than most cases here; a stricter labeller might set this false.
+ground_truth:
+- file: internal/codespaces/portforwarder/port_forwarder.go
+  start_line: 39
+  end_line: 39
+- file: internal/codespaces/portforwarder/port_forwarder.go
+  start_line: 57
+  end_line: 57

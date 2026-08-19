@@ -1,0 +1,20 @@
+schema_version: 1
+
+repos:
+  duckduckgo-android:
+    url: https://github.com/duckduckgo/Android.git
+    language: kotlin
+    license: Apache-2.0
+    attribution: "DuckDuckGo Android app -- https://github.com/duckduckgo/Android"
+
+  pydantic:
+    url: https://github.com/pydantic/pydantic.git
+    language: python
+    license: MIT
+    attribution: "pydantic -- https://github.com/pydantic/pydantic"
+
+  cli:
+    url: https://github.com/cli/cli.git
+    language: go
+    license: MIT
+    attribution: "GitHub CLI (cli/cli) -- https://github.com/cli/cli"

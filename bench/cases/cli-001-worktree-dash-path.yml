@@ -1,0 +1,33 @@
+id: cli-001-worktree-dash-path
+repo: cli
+fix_sha: 5e6aa5ab275ad25a8999871f7f86aeda6349099b
+introducing_sha: b130a9be5b0f0db2e41ddd82044ef6c256c93625
+diff_visible: true
+confirmed_at: '2026-08-19T10:02:38Z'
+note: |
+  fix subject: fix(pr/checkout): pass -- before worktree path so dash paths work
+
+  Assessment (agent proposal, not a confirmation): `git worktree add <path>` treats a `path`
+  starting with `-` as an option, so a `--worktree` value like `-foo` failed with an
+  unknown-switch error because no `--` end-of-options separator preceded it in any of the four
+  `worktree add` call sites. introducing_sha (b130a9be, "Add --worktree flag to gh pr checkout")
+  is the PR that first added the `--worktree` flag and every one of those call sites -- very
+  high confidence, the bug was present from the feature's first commit, not introduced later.
+  diff_visible: true -- plausible for a reviewer familiar with this specific git quirk to catch,
+  though it is a narrow one to know in advance.
+ground_truth:
+- file: pkg/cmd/pr/checkout/checkout.go
+  start_line: 214
+  end_line: 214
+- file: pkg/cmd/pr/checkout/checkout.go
+  start_line: 222
+  end_line: 222
+- file: pkg/cmd/pr/checkout/checkout.go
+  start_line: 225
+  end_line: 225
+- file: pkg/cmd/pr/checkout/checkout.go
+  start_line: 250
+  end_line: 250
+- file: pkg/cmd/pr/checkout/checkout.go
+  start_line: 284
+  end_line: 284
