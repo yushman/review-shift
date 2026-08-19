@@ -5,7 +5,7 @@
 
 [English version](README.md)
 
-> **Статус: выпущен v0.1.2.** `pipx install review-shift` ставит его из PyPI.
+> **Статус: выпущен v0.1.3.** `pipx install review-shift` ставит его из PyPI.
 
 ---
 

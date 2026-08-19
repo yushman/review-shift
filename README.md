@@ -6,7 +6,7 @@ until after the merge.**
 
 [Русская версия](README.ru.md)
 
-> **Status: v0.1.2 released.** `pipx install review-shift` installs it from PyPI.
+> **Status: v0.1.3 released.** `pipx install review-shift` installs it from PyPI.
 
 ---
 
