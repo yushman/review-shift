@@ -1,0 +1,52 @@
+# Written by `review-shift init`. Meant to be committed (TDR §7) -- run artifacts under
+# .review-shift/runs/ are excluded separately, via .git/info/exclude, not this file.
+version: 2
+depth: medium                  # low | medium | high
+base_branch: main              # auto = origin/HEAD, or an explicit branch name
+
+discovery:
+  patterns: []                 # fnmatch globs, e.g. "feature/*"; regex via "re:" prefix
+  exclude_patterns: []
+  discover_all: false          # true => every local branch except base_branch
+  max_age_hours: 24            # by committerdate
+  max_branches_per_run: 10
+
+scope:
+  include_paths: []
+  # these four patterns are never removed: your list is merged with them, not replacing them
+  exclude_paths:
+    - "**/.env*"
+    - "**/secrets/**"
+    - "**/*.pem"
+    - "**/*.key"
+    - "**/*.lock"
+    - "**/dist/**"
+  full_file_review: auto       # auto | always | never
+
+output:
+  dir: .review-shift/runs
+  retention_days: 14
+  retention_min_runs: 3
+
+runtime:
+  soft_timeout_minutes: 15
+  hard_timeout_minutes: 45
+  budget_usd: 10.00
+  total_budget_usd: 50.00
+  auth_preflight_budget_usd: 0.20  # the cheap "is auth healthy" call before the batch starts
+  model: sonnet
+  exit_zero_on_findings: false
+
+# Input only, for `review-shift init launchd`'s plist generator. Once the plist exists, it is
+# the source of truth; `review-shift doctor` compares the two and warns on drift.
+launchd:
+  hour: 3
+  minute: 30
+  wake_machine: true            # pmset repeat wakeorpoweron, 5 minutes before hour:minute
+
+# Commits landed directly on base_branch, reviewed per commit -- `review-shift run --trunk`.
+# The first run after enabling this reviews nothing (the watermark bootstraps forward); it
+# resumes from there on subsequent nights.
+trunk:
+  enabled: true
+  max_commits_per_run: 10
