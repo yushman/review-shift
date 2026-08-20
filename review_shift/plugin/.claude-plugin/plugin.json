@@ -1,7 +1,7 @@
 {
   "name": "review-shift",
   "description": "Autonomous code review of one local git branch, reusing review-shift's own prompts, lock and CLI rather than reimplementing review logic in-session.",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "author": {
     "name": "review-shift"
   },
