@@ -1,39 +1,45 @@
-"""Renders bench results. The headline block is detection: recall per depth from the stored
-verdicts, plus yield and precision (design.md D5, D6). Localization -- the line arithmetic at
-both tolerances -- is demoted to its own section and labelled for what it measures, which is
-whether a patch can be anchored, not whether the review works (design.md D1).
+"""Renders bench results. The headline block is the paired depth comparison: an exact sign
+test over discordant pairs, the comparison the product actually turns on and the one that is
+tractable at this corpus size (design.md D3, proposal.md). Detection recall, yield and
+precision follow, then localization -- the line arithmetic at both tolerances -- demoted to
+its own section and labelled for what it measures, which is whether a patch can be anchored,
+not whether the review works (design.md D1).
 
-Every figure carries its case count and its adjudication coverage, and a result below the
-corpus target is marked unpublishable in the output itself, not only in prose (spec "Every
-reported metric carries its case count"). A metric with nothing adjudicated prints as
-`uncomputed` with its outstanding count: `0%` would read as a measured failure (design.md D4).
+Every rate carries its Wilson 95% interval alongside its point estimate and denominator, and a
+rate whose interval is wider than `CLAIM_INTERVAL_WIDTH` is marked as supporting no claim --
+by interval width, not by corpus size (design.md D2; spec "A figure whose interval is too wide
+to separate the outcomes it compares supports no claim"). `yield` is the deliberate exception:
+it is a mean of counts, not a proportion, so it carries no interval and says so explicitly
+(design.md D5). A metric with nothing adjudicated prints as `uncomputed` with its outstanding
+count: `0%` would read as a measured failure (design.md D4).
 """
 from __future__ import annotations
 
+from itertools import combinations
+
 from bench.runner import DEPTHS
 from bench.scorer import (
+    CLAIM_INTERVAL_WIDTH,
     TOLERANCES,
     CaseRunResult,
     Metric,
     applicability,
     detected,
     localization,
+    paired_comparison,
     precision,
     recall,
+    undetected_everywhere,
     yield_per_case,
 )
 from bench.verdict import VerdictIndex
 
-__all__ = ["CORPUS_TARGET", "render"]
+__all__ = ["CLAIM_INTERVAL_WIDTH", "CORPUS_TARGET", "render"]
 
-# ADR-015's "30 PR" minimum, carried over unchanged by design.md's Open Questions.
+# The corpus's growth target (ADR-015's "30 PR" minimum). No longer the publishability rule --
+# see `CLAIM_INTERVAL_WIDTH` in bench.scorer for what replaced it -- but it stays as the number
+# the corpus is grown toward, and ADR-015 and the adjudication scaling limit both cite it.
 CORPUS_TARGET = 30
-
-
-def _unpublishable(n: int) -> str:
-    if n >= CORPUS_TARGET:
-        return ""
-    return f"  [UNPUBLISHABLE: n={n} < corpus target {CORPUS_TARGET}]"
 
 
 def _coverage(metric: Metric, unit: str) -> str:
@@ -41,8 +47,29 @@ def _coverage(metric: Metric, unit: str) -> str:
     return f"adjudicated {metric.adjudicated}/{produced} {unit}"
 
 
-def _fmt_rate(label: str, rate: float, n: int) -> str:
-    return f"{label}: {rate * 100:.0f}% (n={n}){_unpublishable(n)}"
+def _fmt_interval(metric: Metric) -> str:
+    if not metric.has_interval:
+        return ""
+    assert metric.lower is not None and metric.upper is not None
+    conf = metric.confidence if metric.confidence is not None else 0.95
+    return f" [{metric.lower * 100:.0f}% .. {metric.upper * 100:.0f}%] ({conf * 100:.0f}% CI)"
+
+
+def _claim_mark(metric: Metric) -> str:
+    """design.md D2: a rate is marked as supporting no claim when its own interval is wider
+    than `CLAIM_INTERVAL_WIDTH`, not when the corpus is smaller than `CORPUS_TARGET`. A metric
+    with no interval (uncomputed, or `yield`) is never marked here -- there is nothing to
+    measure the width of."""
+    if not metric.has_interval:
+        return ""
+    assert metric.lower is not None and metric.upper is not None
+    width = metric.upper - metric.lower
+    if width <= CLAIM_INTERVAL_WIDTH:
+        return ""
+    return (
+        f"  [UNPUBLISHABLE: interval width {width * 100:.0f}pp > "
+        f"{CLAIM_INTERVAL_WIDTH * 100:.0f}pp -- cannot separate adjacent depths]"
+    )
 
 
 def _fmt_metric(
@@ -60,8 +87,26 @@ def _fmt_metric(
         f"{metric.value * 100:.0f}%" if unit == "%" else f"{metric.value:.2f} {unit}"
     )
     return (
-        f"{label}: {figure} (n={metric.n}, {_coverage(metric, coverage_unit)})"
-        f"{_unpublishable(metric.n)}"
+        f"{label}: {figure}{_fmt_interval(metric)} "
+        f"(n={metric.n}, {_coverage(metric, coverage_unit)}){_claim_mark(metric)}"
+    )
+
+
+def _fmt_yield(label: str, metric: Metric) -> str:
+    """`yield` reports its numerator and denominator explicitly rather than only their ratio,
+    and says plainly that its uncertainty is not quantified -- it is a mean of small,
+    heterogeneous counts, not a proportion, so no Wilson interval applies (design.md D5)."""
+    if not metric.computed:
+        return (
+            f"{label}: uncomputed (adjudicated {metric.adjudicated}/"
+            f"{metric.adjudicated + metric.outstanding} findings, "
+            f"{metric.outstanding} outstanding)"
+        )
+    assert metric.value is not None and metric.k is not None
+    return (
+        f"{label}: {metric.value:.2f} per case "
+        f"({metric.k} true defects / {metric.n} cases, "
+        f"{_coverage(metric, 'findings')}; uncertainty not quantified)"
     )
 
 
@@ -73,15 +118,19 @@ def _depths(results: list[CaseRunResult]) -> list[str]:
     return [*DEPTHS, *extra]
 
 
+def _depths_with_results(results: list[CaseRunResult]) -> list[str]:
+    """`_depths` in ladder order, restricted to depths that actually ran. A depth on the
+    ladder with no stored run (e.g. a level added since the last bench run) has nothing to
+    pair against, so it is excluded from the paired comparison rather than reported as three
+    empty comparisons."""
+    ran = {r.depth for r in results if r.status == "ok"}
+    return [d for d in _depths(results) if d in ran]
+
+
 def render(results: list[CaseRunResult], verdicts: VerdictIndex) -> str:
     lines = ["# bench results", ""]
     total_cases = len({r.case.id for r in results})
-    lines.append(f"cases attempted: {total_cases}")
-    if total_cases < CORPUS_TARGET:
-        lines.append(
-            f"[UNPUBLISHABLE: {total_cases} cases is below the corpus target of "
-            f"{CORPUS_TARGET} -- no number in this report may be published]"
-        )
+    lines.append(f"cases attempted: {total_cases} (corpus growth target: {CORPUS_TARGET})")
 
     depths = _depths(results)
     pre_relabel = [d for d in depths if d not in DEPTHS]
@@ -110,6 +159,31 @@ def render(results: list[CaseRunResult], verdicts: VerdictIndex) -> str:
 
     lines.append("## detection (verdict-based)")
     lines.append("")
+    lines.append("### paired comparison across depths (headline)")
+    lines.append(
+        "  Wins/losses over cases where both depths ran and both are adjudicated; ties carry"
+    )
+    lines.append(
+        "  no directional information and are excluded from the sign test. p is exact and"
+    )
+    lines.append("  one-sided, in the direction observed.")
+    paired_depths = _depths_with_results(results)
+    for depth_a, depth_b in combinations(paired_depths, 2):
+        pc = paired_comparison(results, verdicts, depth_a, depth_b)
+        base = (
+            f"  {pc.depth_a} vs {pc.depth_b}: {pc.depth_a} {pc.wins_a}, {pc.depth_b} "
+            f"{pc.wins_b}, ties {pc.ties} (n={pc.n})"
+        )
+        if pc.p_value is None:
+            lines.append(f"{base} -- no discordant pairs, no p-value")
+        else:
+            lines.append(f"{base} -- {pc.direction} ahead, p={pc.p_value:.4f}")
+    undetected = undetected_everywhere(results, verdicts)
+    lines.append(
+        f"  undetected at every depth: {undetected} case(s) -- these can never contribute a "
+        f"discordant pair, and they cap recall regardless of what the tool does"
+    )
+    lines.append("")
     lines.append("### recall -- of the defects the corpus labelled, how many were found")
     for depth in depths:
         lines.append("  " + _fmt_metric(
@@ -122,11 +196,9 @@ def render(results: list[CaseRunResult], verdicts: VerdictIndex) -> str:
         ))
     lines.append("")
 
-    lines.append("### yield -- findings adjudicated as true defects, per case (headline)")
+    lines.append("### yield -- findings adjudicated as true defects, per case")
     for depth in depths:
-        lines.append("  " + _fmt_metric(
-            depth, yield_per_case(results, verdicts, depth=depth), unit="per case",
-        ))
+        lines.append("  " + _fmt_yield(depth, yield_per_case(results, verdicts, depth=depth)))
     lines.append("")
 
     lines.append("### precision -- of adjudicated findings, the fraction judged true defects")
@@ -150,8 +222,8 @@ def render(results: list[CaseRunResult], verdicts: VerdictIndex) -> str:
         ))
     lines.append("")
 
-    app_rate, app_n = applicability([r for r in results if r.status == "ok"])
-    lines.append(_fmt_rate("applicability", app_rate, app_n))
+    app_metric = applicability([r for r in results if r.status == "ok"])
+    lines.append(_fmt_metric("applicability", app_metric, coverage_unit="patches"))
     lines.append("")
 
     lines.append("## per repository (detection)")

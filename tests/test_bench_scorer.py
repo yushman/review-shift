@@ -11,6 +11,8 @@ stored findings are the adjudicator's work and live in `bench/verdicts/`.
 """
 from pathlib import Path
 
+import pytest
+
 from bench.case import Case, GroundTruthRange
 from bench.scorer import (
     CaseRunResult,
@@ -18,8 +20,12 @@ from bench.scorer import (
     detected,
     is_localized,
     localization,
+    paired_comparison,
     precision,
     recall,
+    sign_test,
+    undetected_everywhere,
+    wilson,
     yield_per_case,
 )
 from bench.verdict import Verdict, VerdictIndex, finding_key
@@ -166,6 +172,7 @@ def test_metrics_with_nothing_adjudicated_are_uncomputed_not_zero():
         assert metric.value is None, "0% would read as a measured failure"
         assert metric.computed is False
         assert metric.outstanding >= 1
+        assert not metric.has_interval, "an uncomputed metric must carry no interval"
 
 
 def test_precision_ignores_unadjudicated_findings():
@@ -262,7 +269,9 @@ def test_applicability_counts_patch_files_checked_independently(tmp_path: Path):
     def check(repo_dir, head_sha, patch):
         return patch.name == "all.patch"
 
-    assert applicability([result], check=check) == (0.5, 2)
+    metric = applicability([result], check=check)
+    assert (metric.value, metric.k, metric.n) == (0.5, 1, 2)
+    assert metric.has_interval
 
 
 def test_applicability_ignores_findings_status_field(tmp_path: Path):
@@ -273,7 +282,8 @@ def test_applicability_ignores_findings_status_field(tmp_path: Path):
     result.findings = [
         {"file": "a.py", "line": 1, "before": "x", "after": "y", "status": "applicable"},
     ]
-    assert applicability([result], check=lambda *_: False) == (0.0, 1)
+    metric = applicability([result], check=lambda *_: False)
+    assert (metric.value, metric.k, metric.n) == (0.0, 0, 1)
 
 
 def test_applicability_skips_runs_without_a_run_dir():
@@ -281,4 +291,170 @@ def test_applicability_skips_runs_without_a_run_dir():
     result = CaseRunResult(
         case=case, depth="medium", findings=None, cost_usd=0.0, status="review_failed",
     )
-    assert applicability([result], check=lambda *_: True) == (0.0, 0)
+    metric = applicability([result], check=lambda *_: True)
+    assert metric.value is None
+    assert metric.n == 0
+
+
+# --- wilson interval (tasks.md 1.1, 1.3) ----------------------------------------------------
+
+def test_wilson_hand_computed_two_of_six():
+    """`2/6` is the corpus's own `low` recall (proposal.md): roughly `[10% .. 70%]`."""
+    lower, upper = wilson(2, 6)
+    assert lower == pytest.approx(0.0967, abs=1e-3)
+    assert upper == pytest.approx(0.7001, abs=1e-3)
+
+
+def test_wilson_boundary_zero_successes_has_nonzero_width_inside_unit_interval():
+    """A Wald interval collapses to `[0%, 0%]` here -- a false claim of certainty. Wilson must
+    not."""
+    lower, upper = wilson(0, 6)
+    assert lower == pytest.approx(0.0, abs=1e-9)
+    assert upper == pytest.approx(0.3904, abs=1e-3)
+    assert upper - lower > 0
+    assert 0.0 <= lower <= upper <= 1.0
+
+
+def test_wilson_boundary_all_successes_has_nonzero_width_inside_unit_interval():
+    lower, upper = wilson(6, 6)
+    assert lower == pytest.approx(0.6096, abs=1e-3)
+    assert upper == pytest.approx(1.0, abs=1e-9)
+    assert upper - lower > 0
+    assert 0.0 <= lower <= upper <= 1.0
+
+
+def test_wilson_guards_zero_trials():
+    with pytest.raises(ValueError):
+        wilson(0, 0)
+
+
+# --- sign test (tasks.md 1.2, 1.3) ----------------------------------------------------------
+
+def test_sign_test_two_wins_zero_losses_matches_hand_computed():
+    assert sign_test(2, 0) == pytest.approx(0.25)
+
+
+def test_sign_test_five_wins_zero_losses_is_below_significance_threshold():
+    p = sign_test(5, 0)
+    assert p is not None
+    assert p < 0.05
+
+
+def test_sign_test_no_discordant_pairs_returns_none_not_a_p_value_over_empty_set():
+    assert sign_test(0, 0) is None
+
+
+def test_sign_test_is_symmetric_in_which_side_is_named_wins():
+    assert sign_test(2, 0) == sign_test(0, 2)
+
+
+# --- paired comparison and undetected-everywhere (tasks.md 4.1, 4.2, 4.4) -------------------
+
+def _paired_corpus():
+    """Reproduces the shape in proposal.md's worked example: six cases at three depths, where
+    `cli-001`/`cli-002` are missed at every depth, and `high` beats `low` 2-0 (p = 0.25)."""
+    per_case = {
+        "cli-001": {"low": False, "medium": False, "high": False},
+        "cli-002": {"low": False, "medium": False, "high": False},
+        "cli-003": {"low": False, "medium": True, "high": True},
+        "duckduckgo-002": {"low": True, "medium": True, "high": True},
+        "pydantic-001": {"low": False, "medium": False, "high": True},
+        "pydantic-003": {"low": True, "medium": True, "high": True},
+    }
+    results: list[CaseRunResult] = []
+    verdict_args = []
+    for case_id, per_depth in per_case.items():
+        case = _case(
+            [GroundTruthRange(file="a.py", start_line=1, end_line=1)], case_id=case_id,
+        )
+        for depth, hit in per_depth.items():
+            finding = {"file": "a.py", "line": 1, "rationale": f"{case_id}/{depth}"}
+            results.append(_result(case, [finding], depth=depth))
+            verdict_args.append((case_id, finding, True, hit))
+    return results, _index(*verdict_args)
+
+
+def test_paired_comparison_matches_the_worked_example():
+    results, verdicts = _paired_corpus()
+    pc = paired_comparison(results, verdicts, "low", "high")
+    assert (pc.wins_a, pc.wins_b, pc.ties, pc.n) == (0, 2, 4, 6)
+    assert pc.direction == "high"
+    assert pc.p_value == pytest.approx(0.25)
+
+
+def test_paired_comparison_no_discordant_pairs_reports_zero_and_no_p_value():
+    case = _case([GroundTruthRange(file="a.py", start_line=1, end_line=1)])
+    finding = {"file": "a.py", "line": 1, "rationale": "found at both depths"}
+    verdicts = _index((case.id, finding, True, True))
+    results = [
+        _result(case, [finding], depth="low"), _result(case, [finding], depth="medium"),
+    ]
+    pc = paired_comparison(results, verdicts, "low", "medium")
+    assert (pc.wins_a, pc.wins_b, pc.ties) == (0, 0, 1)
+    assert pc.p_value is None
+    assert pc.direction is None
+
+
+def test_paired_comparison_excludes_cases_unadjudicated_at_either_depth():
+    case = _case([GroundTruthRange(file="a.py", start_line=1, end_line=1)])
+    unjudged = {"file": "a.py", "line": 9, "rationale": "nobody has looked yet"}
+    verdicts = VerdictIndex(by_case={})
+    results = [
+        _result(case, [unjudged], depth="low"), _result(case, [unjudged], depth="medium"),
+    ]
+    pc = paired_comparison(results, verdicts, "low", "medium")
+    assert pc.n == 0
+    assert pc.p_value is None
+
+
+def test_undetected_everywhere_counts_cases_missed_at_every_depth_they_ran():
+    results, verdicts = _paired_corpus()
+    assert undetected_everywhere(results, verdicts) == 2
+
+
+def test_undetected_everywhere_excludes_a_case_with_any_unadjudicated_depth():
+    case = _case([GroundTruthRange(file="a.py", start_line=1, end_line=1)])
+    missed = {"file": "a.py", "line": 1, "rationale": "adjudicated, not the case's defect"}
+    unjudged = {"file": "a.py", "line": 9, "rationale": "unjudged"}
+    verdicts = _index((case.id, missed, True, False))
+    results = [
+        _result(case, [missed], depth="low"), _result(case, [unjudged], depth="medium"),
+    ]
+    assert undetected_everywhere(results, verdicts) == 0
+
+
+# --- intervals on Metric, and yield's deliberate exception (tasks.md 2.2, 2.3, 4.3) ---------
+
+def test_recall_precision_localization_carry_wilson_intervals():
+    case = _case([GroundTruthRange(file="a.py", start_line=1, end_line=1)])
+    finding = {"file": "a.py", "line": 1, "rationale": "found it"}
+    verdicts = _index((case.id, finding, True, True))
+    results = [_result(case, [finding])]
+
+    for metric in (
+        recall(results, verdicts, "medium"),
+        precision(results, verdicts),
+        localization(results, verdicts, 0),
+    ):
+        assert metric.has_interval
+        assert metric.confidence == pytest.approx(0.95)
+        assert metric.value is not None
+        assert metric.lower is not None and metric.upper is not None
+        assert 0.0 <= metric.lower <= metric.value <= metric.upper <= 1.0
+
+
+def test_yield_never_carries_an_interval():
+    """design.md D5 -- yield is a mean of counts, not a proportion, and must not receive a
+    Wilson interval even though it shares the `Metric` shape with rates that do."""
+    case = _case([GroundTruthRange(file="a.py", start_line=1, end_line=1)])
+    finding = {"file": "a.py", "line": 1, "rationale": "a true defect"}
+    verdicts = _index((case.id, finding, True, True))
+    results = [_result(case, [finding])]
+
+    metric = yield_per_case(results, verdicts)
+    assert metric.computed
+    assert metric.k == 1
+    assert not metric.has_interval
+    assert metric.lower is None
+    assert metric.upper is None
+    assert metric.confidence is None

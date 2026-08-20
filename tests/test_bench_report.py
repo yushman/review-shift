@@ -69,19 +69,41 @@ def test_report_shows_case_count():
     assert "cases attempted: 3" in text
 
 
-def test_report_below_target_is_marked_unpublishable():
-    assert CORPUS_TARGET > 3
+def test_report_wide_interval_is_marked_by_width_not_corpus_size():
+    """design.md D2: a rate is marked as supporting no claim by its own interval width, and
+    the mark names the width -- not the corpus target."""
     text = render(_results(3), _verdicts(3))
-    assert "UNPUBLISHABLE" in text
+    recall_line = next(
+        line for line in text.splitlines() if line.strip().startswith("medium:")
+    )
+    assert "UNPUBLISHABLE" in recall_line
+    assert "interval width" in recall_line
+    assert "corpus target" not in recall_line
 
 
-def test_report_at_target_is_not_marked_unpublishable_for_case_count():
-    text = render(_results(CORPUS_TARGET), _verdicts(CORPUS_TARGET))
-    assert f"cases attempted: {CORPUS_TARGET}" in text
-    lines = text.splitlines()
-    header_line = next(line for line in lines if line.startswith("cases attempted"))
-    idx = lines.index(header_line)
-    assert "UNPUBLISHABLE" not in lines[idx + 1]
+def test_report_narrow_interval_from_a_small_corpus_is_not_marked():
+    """design.md D2's second scenario: a rate whose own interval is narrow enough is not
+    marked, even though the corpus is far below the growth target of 30 -- corpus size is no
+    longer what the rule tests."""
+    n = 10
+    assert n < CORPUS_TARGET
+    text = render(_results(n), _verdicts(n))
+    recall_line = next(
+        line for line in text.splitlines() if line.strip().startswith("medium:")
+    )
+    assert "100%" in recall_line
+    assert "UNPUBLISHABLE" not in recall_line
+
+
+def test_report_shows_cases_attempted_without_a_corpus_size_gate():
+    """The old behaviour marked the whole report unpublishable below `CORPUS_TARGET`. That
+    guard is gone -- each figure now carries its own -- so the case count is informational."""
+    text = render(_results(3), _verdicts(3))
+    header_line = next(
+        line for line in text.splitlines() if line.startswith("cases attempted")
+    )
+    assert "3" in header_line
+    assert "UNPUBLISHABLE" not in header_line
 
 
 def test_report_shows_both_tolerances_under_localization():
@@ -120,6 +142,44 @@ def test_report_flags_pre_relabel_depths():
     text = render(results, _verdicts(1))
     assert "PRE-RELABEL DEPTHS" in text
     assert "high" in text
+
+
+def test_report_shows_paired_comparison_as_the_detection_headline():
+    text = render(_results(6), _verdicts(6))
+    assert "### paired comparison across depths (headline)" in text
+    lines = text.splitlines()
+    detection_idx = lines.index("## detection (verdict-based)")
+    paired_idx = lines.index("### paired comparison across depths (headline)")
+    recall_idx = next(
+        i for i, line in enumerate(lines)
+        if line.startswith("### recall")
+    )
+    assert detection_idx < paired_idx < recall_idx
+
+
+def test_report_shows_undetected_everywhere_count_next_to_the_paired_block():
+    text = render(_results(3), _verdicts(3))
+    assert "undetected at every depth" in text
+
+
+def test_report_rate_shows_interval_and_states_the_confidence_level():
+    text = render(_results(6), _verdicts(6))
+    recall_line = next(
+        line for line in text.splitlines() if line.strip().startswith("medium:")
+    )
+    assert "95% CI" in recall_line
+    assert ".." in recall_line
+
+
+def test_report_yield_shows_numerator_denominator_and_uncertainty_note_no_interval():
+    text = render(_results(3), _verdicts(3))
+    yield_line = next(
+        line for line in text.splitlines()
+        if line.strip().startswith("medium:") and "per case" in line
+    )
+    assert "true defects" in yield_line
+    assert "uncertainty not quantified" in yield_line
+    assert "CI" not in yield_line, "yield must never receive a Wilson interval (design.md D5)"
 
 
 def test_report_shows_failed_cases_not_completed():
