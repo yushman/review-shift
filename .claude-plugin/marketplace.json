@@ -1,7 +1,7 @@
 {
   "name": "review-shift",
   "owner": {
-    "name": "review-shift"
+    "name": "yushman"
   },
   "description": "Self-hosted marketplace for the review-shift plugin (autonomous code review of local git branches).",
   "plugins": [
