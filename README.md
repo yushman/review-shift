@@ -4,7 +4,7 @@
 apply-able git patch on your desk by morning — instead of the review you keep postponing
 until after the merge.**
 
-[Русская версия](README.ru.md)
+[Русская версия](README.ru.md) · [Website](https://yushman.github.io/review-shift/)
 
 > **Status: v0.2.0 released.** `pipx install review-shift` installs it from PyPI.
 

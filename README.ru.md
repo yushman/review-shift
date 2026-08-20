@@ -3,7 +3,7 @@
 **review-shift ночью ревьюит локальные git-ветки и к утру кладёт на стол отчёт и готовый
 к применению git-патч, вместо ревью, которое откладывается до момента после мержа.**
 
-[English version](README.md)
+[English version](README.md) · [Сайт](https://yushman.github.io/review-shift/index.ru.html)
 
 > **Статус: выпущен v0.2.0.** `pipx install review-shift` ставит его из PyPI.
 

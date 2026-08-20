@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>review-shift: ревью веток, которые так и не стали пулл-реквестом</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2314171c'/%3E%3Cpath d='M9 9h9M9 15h14M9 21h6' stroke='%23a78bfa' stroke-width='2.6' stroke-linecap='round'/%3E%3Ccircle cx='23' cy='21' r='4' fill='none' stroke='%23a78bfa' stroke-width='2.4'/%3E%3C/svg%3E">
+<meta name="description" content="Код-ревью локальных git-веток по расписанию, которое выбираете вы. Оставляет отчёт и готовый патч. Рабочее дерево не трогает.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="wrap topnav"><a href="index.html">English →</a></div>
+
+<header class="hero wrap">
+  <h1>review<span>-shift</span></h1>
+  <p class="tag">Ревью для веток, которые так и не стали пулл-реквестом.</p>
+  <p class="sub">Запускается по расписанию, которое выбираете вы, ревьюит каждую ветку, где вы что-то трогали, и оставляет отчёт с готовым патчем. Код уходит ровно туда же, куда ваша обычная сессия Claude Code, и никуда больше.</p>
+  <div class="badges">
+    <span class="badge">MIT</span>
+    <span class="badge">Работает у вас на машине</span>
+    <span class="badge">Через ваш Claude Code</span>
+    <span class="badge">С потолком трат</span>
+  </div>
+  <div class="cta">
+    <a class="primary" href="#start">Поставить</a>
+    <a class="ghost" href="https://github.com/yushman/review-shift">GitHub</a>
+    <a class="ghost" href="#faq">FAQ</a>
+  </div>
+</header>
+
+<section class="wrap">
+  <span class="kicker">Как работает</span>
+  <h2>Три шага, и ни один не ваш</h2>
+  <div class="cards">
+    <div class="card"><b>1 · Находит работу</b><span>Ветки, где с прошлого раза были коммиты, отфильтрованные вашими же масками. Или все коммиты, что легли прямо в <code>main</code>.</span></div>
+    <div class="card"><b>2 · Ревьюит дифф</b><span>От merge-base, только на чтение, с замаскированными секретами. Находки возвращаются структурно и с severity.</span></div>
+    <div class="card"><b>3 · Отдаёт патч</b><span>Дифф собирается здесь, а не моделью, и до записи на диск проходит <code>git apply --check</code>. Применять или нет, решаете вы.</span></div>
+  </div>
+</section>
+
+<section class="wrap">
+  <span class="kicker">Что ловит</span>
+  <h2>Баги из настоящих репозиториев, с пруфами</h2>
+  <p class="tight">Каждый найден на коммите, который его внёс. О том, что фикс существует, ревьюер не знал. Можно перейти и проверить.</p>
+
+  <div class="defect">
+    <b>OAuth-скоупы, которые молча не совпадают &nbsp;·&nbsp; <code>cli/cli</code></b>
+    <pre><span class="c">// API отдаёт "gist, project, read:org, repo, workflow"</span>
+strings.Split(scopes, <span class="y">","</span>)  <span class="r">// у всех элементов, кроме первого, ведущий пробел</span></pre>
+    <p>Точное сравнение с <code>"workflow"</code> не срабатывает никогда. Пользователю говорят, что у него нет права, которое у него есть. <a href="https://github.com/cli/cli/commit/92ae1de0355368b3d6d1c361362dc524fe98498b">Фикс в апстриме →</a></p>
+  </div>
+
+  <div class="defect">
+    <b>Флаг, который пишет не в то дерево &nbsp;·&nbsp; <code>cli/cli</code></b>
+    <p><code>gh pr checkout --worktree ../wt --recurse-submodules</code> синхронизировал сабмодули в <em>главном</em> worktree, а в новом они оставались пустыми. <a href="https://github.com/cli/cli/commit/b130a9be5b0f0db2e41ddd82044ef6c256c93625">Коммит, который он ревьюил →</a></p>
+  </div>
+
+  <div class="defect">
+    <b>Сравнение, падающее на кириллице &nbsp;·&nbsp; <code>pydantic</code></b>
+    <p><code>SecretStr('пароль') == SecretStr('пароль')</code> кидал <code>TypeError</code> вместо истины: <code>compare_digest</code> не принимает не-ASCII. <a href="https://github.com/pydantic/pydantic/commit/35b8d94c1435a3e78fc919cfdb439a1ef85a8d6f">Фикс в апстриме →</a></p>
+  </div>
+</section>
+
+<section class="wrap">
+  <span class="kicker">Ваши правила</span>
+  <h2>Всё на этой странице настраивается</h2>
+  <p class="tight">Один <code>.review-shift/config.yml</code>, лежит в репозитории, так что у всей команды поведение одинаковое.</p>
+  <table>
+    <tr><th>Когда запускать</th><td>Любой час и минута. В 18:00, когда закрыли ноутбук, в 03:30, пока спите, или вообще никогда: зовите руками.</td></tr>
+    <tr><th>Какие ветки</th><td>Маски или регулярки, список исключений, что считать свежим, сколько штук за прогон. Либо trunk-режим: каждый коммит, легший в <code>main</code>.</td></tr>
+    <tr><th>Насколько глубоко</th><td>Два уровня, цена и время на ветку в таблице ниже.</td></tr>
+    <tr><th>Что можно патчить</th><td>Порог severity. Поставьте <code>critical</code>, и в автопатч попадут только серьёзные, остальное останется в отчёте.</td></tr>
+    <tr><th>Куда не заглядывать</th><td>Свои маски путей плюс четыре, которые нельзя убрать: <code>.env*</code>, <code>secrets/**</code>, <code>*.pem</code>, <code>*.key</code>.</td></tr>
+    <tr><th>Сколько можно потратить</th><td>Потолок на ветку и потолок на прогон. Упёрся в любой из них, остановился и сказал об этом. По умолчанию $10 и $50.</td></tr>
+  </table>
+</section>
+
+<section class="wrap" id="start">
+  <span class="kicker">Три способа запускать</span>
+  <h2>Выберите один, остальные добавите потом</h2>
+  <div class="ways">
+    <div class="way"><b>По расписанию</b><span>Настроили раз, дальше читаете отчёты.</span><code>pipx install review-shift
+review-shift init
+review-shift init launchd</code></div>
+    <div class="way"><b>Прямо в сессии Claude Code</b><span>Отревьюить ветку, на которой сидите, сейчас.</span><code>/plugin marketplace add
+  yushman/review-shift
+/review-shift</code></div>
+    <div class="way"><b>Одну ветку руками</b><span>Или своим шагом в CI.</span><code>review-shift run \
+  --branch feature/x \
+  --depth medium</code></div>
+  </div>
+  <p class="tight" style="margin-top:20px">Непонятно, что будет ночью? <code>review-shift run --dry-run</code> проходит поиск веток, дифф, маскировку и отчёт при нуле вызовов модели, то есть бесплатно.</p>
+</section>
+
+<section class="wrap">
+  <span class="kicker">Утром</span>
+  <h2>Что лежит на столе</h2>
+  <div class="shot"><img src="report.png" alt="Отчёт review-shift: шапка с глубиной и стоимостью, сводка по severity и две находки уровня high с обоснованием"></div>
+  <p class="caption">Настоящий прогон по <code>cli/cli</code>. Две находки, обе high. К первой есть фикс, вторая помечена <code>no_fix</code> и вынесена в отдельный раздел: находка, которую нельзя починить патчем, всё равно должна попасться вам на глаза.</p>
+  <div class="shot" style="margin-top:22px"><img src="patch.png" alt="Сгенерированный auto_fixed.patch: правка в одну строку, вместо обёрнутой nil-ошибки простой return"></div>
+  <p class="caption">Патч, собранный по первой находке. До записи на диск он прошёл <code>git apply --check</code>.</p>
+  <pre style="margin-top:26px">.review-shift/runs/2026-08-20T03-30-01Z-batch/
+├── report.md            <span class="c"># находки, severity, что пропущено и почему</span>
+├── findings.json        <span class="c"># структурно, проверено по схеме</span>
+├── patches/
+│   ├── auto_fixed.patch <span class="c"># только выше вашего порога severity</span>
+│   └── all.patch
+└── run.json             <span class="c"># sha, стоимость, время, какая модель шла</span></pre>
+  <table>
+    <tr><th>уровень</th><th>читает</th><th>на ветку</th></tr>
+    <tr><td><code>low</code></td><td>изменённые файлы целиком</td><td class="n">~$0.52 · 95 с</td></tr>
+    <tr><td><code>medium</code></td><td>плюс файлы, которые они импортируют</td><td class="n">~$0.77 · 217 с</td></tr>
+  </table>
+</section>
+
+<section class="wrap">
+  <span class="kicker">Безопасность</span>
+  <h2>Чего он не сделает никогда</h2>
+  <table>
+    <tr><th>Тронуть рабочее дерево</th><td>Ни checkout, ни commit, ни push, ни <code>git apply</code> помимо <code>--check</code>. Пока вы не применили, патч это просто файл.</td></tr>
+    <tr><th>Получить права на запись</th><td>Только чтение, по белому списку. <code>--dangerously-skip-permissions</code> тут ошибка конфигурации, а не опция.</td></tr>
+    <tr><th>Автоматом применить рискованное</th><td>Фикс с сетевым вызовом, подпроцессом, новой зависимостью или правкой CI в автопатч не попадёт. Такое смотрит человек.</td></tr>
+    <tr><th>Молча не сработать</th><td>Пропущенные ветки, непатчируемые находки и замаскированные куски доходят до отчёта с причиной. «Ничего не нашли» не выглядит как «ничего не ревьюили».</td></tr>
+  </table>
+</section>
+
+<section class="wrap bottom" id="faq">
+  <span class="kicker">FAQ</span>
+  <h2>Вопросы, которые вы уже задаёте</h2>
+  <div class="faq">
+    <div class="q"><b>Что нужно до установки?</b><p>Claude Code CLI 2.1.0 или новее, уже авторизованный, и Python 3.11+. Расписание работает через <code>launchd</code>, то есть на macOS; сам CLI идёт и на Linux, оттуда зовите его из cron или CI.</p></div>
+    <div class="q"><b>Мой код уходит с машины?</b><p>Ровно туда, куда его отправляет обычная сессия Claude Code: ревью делает она. Больше никуда. Нет ни сервиса, ни аккаунта, ни телеметрии. Секреты в диффе маскируются заранее, а четыре маски путей нельзя отключить.</p></div>
+    <div class="q"><b>Сколько это стоит?</b><p>Тратится ваш бюджет Claude Code, примерно $0.52–0.77 на ветку в зависимости от глубины. Проект сам не берёт ничего. Потолки включены по умолчанию: $10 на ветку, $50 на прогон. Упёрлось, остановилось, написало об этом.</p></div>
+    <div class="q"><b>У меня уже есть ревью на пулл-реквестах. Зачем это?</b><p>Затем, что тут ревью случается до того, как PR появился. Ветку, на которой вы сидите третий день, прочитают сегодня ночью, пока менять код ещё дёшево. И локально, без выкладывания недоделанного куда бы то ни было.</p></div>
+    <div class="q"><b>Он завалит меня придирками?</b><p>Поставьте порог severity. Выше порога идёт в автопатч, ниже остаётся в отчёте, где это можно спокойно проигнорировать. По умолчанию порог <code>high</code>.</p></div>
+    <div class="q"><b>А насколько хорошо он ловит?</b><p>Все патчи из бенчмарка применились с первого раза: 18 из 18, 95% ДИ 82–100%. По находкам корпус пока шесть настоящих багов из апстрима: видно, что глубокий уровень находит примерно вдвое больше мелкого, но на заявление о значимости этого мало, и стенд сам помечает свою цифру recall как непубликуемую. Два бага из шести не нашёл ни один уровень.</p></div>
+    <div class="q"><b>А если не понравится?</b><p><code>pipx uninstall review-shift</code>. В репозиторий он не писал, откатывать нечего.</p></div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <a href="https://github.com/yushman/review-shift">github.com/yushman/review-shift</a> · MIT · <a href="index.html">English</a>
+  </div>
+</footer>
+
+</body>
+</html>

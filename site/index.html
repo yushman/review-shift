@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>review-shift — code review for branches that never became a PR</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2314171c'/%3E%3Cpath d='M9 9h9M9 15h14M9 21h6' stroke='%23a78bfa' stroke-width='2.6' stroke-linecap='round'/%3E%3Ccircle cx='23' cy='21' r='4' fill='none' stroke='%23a78bfa' stroke-width='2.4'/%3E%3C/svg%3E">
+<meta name="description" content="Scheduled AI code review of your local git branches. Runs when you choose, leaves a report and a ready-to-apply patch. Never touches your working tree.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="wrap topnav"><a href="index.ru.html">Русский →</a></div>
+
+<header class="hero wrap">
+  <h1>review<span>-shift</span></h1>
+  <p class="tag">Code review for the branches that never became a PR.</p>
+  <p class="sub">It runs on a schedule you pick, reviews every branch you touched, and leaves a report and a ready-to-apply patch. Your code never leaves the Claude Code session you already trust.</p>
+  <div class="badges">
+    <span class="badge">MIT</span>
+    <span class="badge">Runs on your machine</span>
+    <span class="badge">Uses your Claude Code</span>
+    <span class="badge">Spend cap built in</span>
+  </div>
+  <div class="cta">
+    <a class="primary" href="#start">Install</a>
+    <a class="ghost" href="https://github.com/yushman/review-shift">GitHub</a>
+    <a class="ghost" href="#faq">FAQ</a>
+  </div>
+</header>
+
+<section class="wrap">
+  <span class="kicker">How it works</span>
+  <h2>Three steps, none of them yours</h2>
+  <div class="cards">
+    <div class="card"><b>1 · It finds the work</b><span>Branches whose commits moved since last time, filtered by your own glob patterns. Or every commit that landed straight on <code>main</code>.</span></div>
+    <div class="card"><b>2 · It reviews the diff</b><span>Against the merge base, read-only, with secrets masked. Findings come back structured and graded by severity.</span></div>
+    <div class="card"><b>3 · It hands you a patch</b><span>The diff is built here, not by the model, and must pass <code>git apply --check</code> before it lands on disk. Applying it is your call.</span></div>
+  </div>
+</section>
+
+<section class="wrap">
+  <span class="kicker">What it catches</span>
+  <h2>Bugs from real repositories, with the receipts</h2>
+  <p class="tight">Each was found by reviewing the commit that introduced it, with no knowledge that a fix existed. Click through and check.</p>
+
+  <div class="defect">
+    <b>OAuth scopes that silently never match &nbsp;·&nbsp; <code>cli/cli</code></b>
+    <pre><span class="c">// the API returns "gist, project, read:org, repo, workflow"</span>
+strings.Split(scopes, <span class="y">","</span>)  <span class="r">// every element but the first keeps a leading space</span></pre>
+    <p>The exact match against <code>"workflow"</code> never fires. Users get told they lack a scope they have. <a href="https://github.com/cli/cli/commit/92ae1de0355368b3d6d1c361362dc524fe98498b">Upstream fix →</a></p>
+  </div>
+
+  <div class="defect">
+    <b>A flag that writes to the wrong worktree &nbsp;·&nbsp; <code>cli/cli</code></b>
+    <p><code>gh pr checkout --worktree ../wt --recurse-submodules</code> synced submodules in the <em>main</em> worktree and left the new one's uninitialised. <a href="https://github.com/cli/cli/commit/b130a9be5b0f0db2e41ddd82044ef6c256c93625">The commit it reviewed →</a></p>
+  </div>
+
+  <div class="defect">
+    <b>Equality that throws on non-ASCII &nbsp;·&nbsp; <code>pydantic</code></b>
+    <p><code>SecretStr('пароль') == SecretStr('пароль')</code> raised <code>TypeError</code> instead of returning true — <code>compare_digest</code> rejects non-ASCII. <a href="https://github.com/pydantic/pydantic/commit/35b8d94c1435a3e78fc919cfdb439a1ef85a8d6f">Upstream fix →</a></p>
+  </div>
+</section>
+
+<section class="wrap">
+  <span class="kicker">Your rules</span>
+  <h2>Everything on this page is a setting</h2>
+  <p class="tight">One <code>.review-shift/config.yml</code>, committed with your repo, so the whole team gets the same behaviour.</p>
+  <table>
+    <tr><th>When it runs</th><td>Any hour and minute you like. 18:00 after you log off, 03:30 while you sleep, or never — just call it by hand.</td></tr>
+    <tr><th>Which branches</th><td>Glob or regex patterns, an exclude list, how recent counts as recent, how many per run. Or trunk mode: every commit that landed on <code>main</code>.</td></tr>
+    <tr><th>How deep</th><td>Two levels, per branch cost and time in the table below.</td></tr>
+    <tr><th>What it may patch</th><td>A severity floor. Set it to <code>critical</code> and only the serious ones reach the auto-apply patch; everything else stays in the report.</td></tr>
+    <tr><th>What it never reads</th><td>Path excludes, on top of four that can't be removed: <code>.env*</code>, <code>secrets/**</code>, <code>*.pem</code>, <code>*.key</code>.</td></tr>
+    <tr><th>What it may spend</th><td>A cap per branch and a cap per run. Hit either and the run stops and says so. Defaults: $10 and $50.</td></tr>
+  </table>
+</section>
+
+<section class="wrap" id="start">
+  <span class="kicker">Three ways to run it</span>
+  <h2>Pick one, add the others later</h2>
+  <div class="ways">
+    <div class="way"><b>On a schedule</b><span>Set it once, read reports.</span><code>pipx install review-shift
+review-shift init
+review-shift init launchd</code></div>
+    <div class="way"><b>Inside a Claude Code session</b><span>Review the branch you're on, now.</span><code>/plugin marketplace add
+  yushman/review-shift
+/review-shift</code></div>
+    <div class="way"><b>One branch, by hand</b><span>Or in your own CI step.</span><code>review-shift run \
+  --branch feature/x \
+  --depth medium</code></div>
+  </div>
+  <p class="tight" style="margin-top:20px">Not sure what a night would do? <code>review-shift run --dry-run</code> runs discovery, the diff, redaction and the report with zero model calls, so it costs nothing.</p>
+</section>
+
+<section class="wrap">
+  <span class="kicker">In the morning</span>
+  <h2>What's on your desk</h2>
+  <div class="shot"><img src="report.png" alt="A review-shift report: header with depth and cost, a severity summary, and two high-severity findings with their reasoning"></div>
+  <p class="caption">A real run against <code>cli/cli</code>. Two findings, both high. One came with a fix; the other is marked <code>no_fix</code> and gets its own section in the report, because a finding it cannot patch is still a finding you should see.</p>
+  <div class="shot" style="margin-top:22px"><img src="patch.png" alt="The generated auto_fixed.patch: a one-line change replacing a wrapped nil error with a plain return"></div>
+  <p class="caption">The patch it built from the first one. It passed <code>git apply --check</code> before it was written to disk.</p>
+  <pre style="margin-top:26px">.review-shift/runs/2026-08-20T03-30-01Z-batch/
+├── report.md            <span class="c"># findings, severities, what was skipped and why</span>
+├── findings.json        <span class="c"># structured, schema-validated</span>
+├── patches/
+│   ├── auto_fixed.patch <span class="c"># only above your severity floor</span>
+│   └── all.patch
+└── run.json             <span class="c"># shas, cost, duration, model used</span></pre>
+  <table>
+    <tr><th>level</th><th>reads</th><th>per branch</th></tr>
+    <tr><td><code>low</code></td><td>changed files in full</td><td class="n">~$0.52 · 95 s</td></tr>
+    <tr><td><code>medium</code></td><td>+ the files they import</td><td class="n">~$0.77 · 217 s</td></tr>
+  </table>
+</section>
+
+<section class="wrap">
+  <span class="kicker">Safety</span>
+  <h2>What it will never do</h2>
+  <table>
+    <tr><th>Touch your working tree</th><td>No checkout, no commit, no push, no <code>git apply</code> outside <code>--check</code>. The patch is a file until you apply it.</td></tr>
+    <tr><th>Get write permissions</th><td>Read-only by allowlist. <code>--dangerously-skip-permissions</code> is a config error here, not an option.</td></tr>
+    <tr><th>Auto-apply something risky</th><td>A fix that adds a network call, a subprocess, a dependency or a CI edit never reaches the auto-patch. A human looks at those.</td></tr>
+    <tr><th>Fail quietly</th><td>Skipped branches, unpatchable findings and masked regions all reach the report with a reason. "Found nothing" never looks like "reviewed nothing".</td></tr>
+  </table>
+</section>
+
+<section class="wrap bottom" id="faq">
+  <span class="kicker">FAQ</span>
+  <h2>The questions you're already asking</h2>
+  <div class="faq">
+    <div class="q"><b>What do I need before installing?</b><p>The Claude Code CLI 2.1.0 or newer, already authenticated, and Python 3.11+. The scheduled path uses <code>launchd</code>, so it's macOS; the CLI itself runs on Linux too, and you can drive it from cron or CI.</p></div>
+    <div class="q"><b>Does my code leave my machine?</b><p>It goes exactly where a Claude Code session sends it, because that's what runs the review — nowhere else. There's no hosted service, no account, no telemetry. Secrets in the diff are masked first, and four secret-shaped path patterns can never be un-excluded.</p></div>
+    <div class="q"><b>What does it cost?</b><p>It spends your Claude Code budget, roughly $0.52–$0.77 per branch depending on depth. Nothing is charged by this project. Caps are on by default — $10 per branch, $50 per run — and a run that hits one stops and tells you.</p></div>
+    <div class="q"><b>I already have review on pull requests. Why this?</b><p>Because this happens before the PR exists. The branch you've been on for three days gets read tonight, while the change is still cheap to alter — and it happens locally, without pushing work-in-progress anywhere.</p></div>
+    <div class="q"><b>Will it flood me with nitpicks?</b><p>Set the severity floor. Only findings above it reach the auto-apply patch; the rest stay in the report where you can ignore them. The default floor is <code>high</code>.</p></div>
+    <div class="q"><b>How good is it, really?</b><p>Every patch it generated in the benchmark applied on the first try: 18 of 18, 95% CI 82–100%. On finding defects the corpus is six real upstream bugs — enough to show the deeper level finds about twice as many as the shallower one, not enough for a significance claim, and the project's own harness marks its recall figure as unpublishable. Two of the six were missed by every level.</p></div>
+    <div class="q"><b>What if I hate it?</b><p><code>pipx uninstall review-shift</code>. It never wrote to your repository, so there is nothing to undo.</p></div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <a href="https://github.com/yushman/review-shift">github.com/yushman/review-shift</a> · MIT · <a href="index.ru.html">Русский</a>
+  </div>
+</footer>
+
+</body>
+</html>
