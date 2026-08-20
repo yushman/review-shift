@@ -10,7 +10,7 @@ from unittest.mock import patch as mock_patch
 from bench.case import Case, GroundTruthRange
 from bench.corpus import CorpusRepo
 from bench.materialize import MaterializeError
-from bench.runner import run_all, run_case
+from bench.runner import load_stored_results, run_all, run_case
 
 
 def _case(case_id: str, repo: str = "pydantic") -> Case:
@@ -98,3 +98,61 @@ def test_run_all_reports_unknown_repo(tmp_path: Path):
     cases = [_case("c1", repo="ghost")]
     results = run_all(cases, {}, depths=("medium",), budget_usd=100.0, runs_dir=tmp_path / "runs")
     assert results[0].status == "unknown_repo"
+
+
+def _write_stored_run(
+    runs_dir: Path, run_id: str, *, branch: str, depth: str, findings: list[dict],
+) -> Path:
+    run_dir = runs_dir / "pydantic" / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "run.json").write_text(json.dumps({
+        "run_id": run_id, "branch": branch, "depth": depth, "cost_usd": 0.4,
+        "head_sha": branch,
+    }))
+    (run_dir / "findings.json").write_text(
+        json.dumps({"schema_version": 1, "findings": findings})
+    )
+    return run_dir
+
+
+def test_load_stored_results_maps_runs_back_to_cases(tmp_path: Path):
+    case = _case("c1")
+    runs = tmp_path / "runs"
+    _write_stored_run(runs, "2026-08-19T10-00-00Z-bbb", branch=case.introducing_sha,
+                      depth="low", findings=[{"file": "a.py", "line": 1}])
+    results = load_stored_results([case], runs_dir=runs, work_dir=tmp_path / "work")
+    assert [(r.case.id, r.depth, r.status) for r in results] == [("c1", "low", "ok")]
+    assert results[0].findings == [{"file": "a.py", "line": 1}]
+
+
+def test_load_stored_results_keeps_only_the_newest_run_per_case_and_depth(tmp_path: Path):
+    """Two runs of the same case/depth are the same measurement made twice, not two cases --
+    counting both would inflate yield with the same finding twice."""
+    case = _case("c1")
+    runs = tmp_path / "runs"
+    _write_stored_run(runs, "2026-08-19T10-00-00Z-bbb", branch=case.introducing_sha,
+                      depth="high", findings=[{"file": "a.py", "line": 1}])
+    _write_stored_run(runs, "2026-08-19T11-00-00Z-bbb", branch=case.introducing_sha,
+                      depth="high", findings=[{"file": "a.py", "line": 2}])
+    results = load_stored_results([case], runs_dir=runs, work_dir=tmp_path / "work")
+    assert len(results) == 1
+    assert results[0].findings == [{"file": "a.py", "line": 2}]
+
+
+def test_load_stored_results_reports_a_run_without_findings_rather_than_dropping_it(
+    tmp_path: Path,
+):
+    case = _case("c1")
+    runs = tmp_path / "runs"
+    run_dir = _write_stored_run(runs, "2026-08-19T10-00-00Z-bbb", branch=case.introducing_sha,
+                                depth="low", findings=[])
+    (run_dir / "findings.json").unlink()
+    results = load_stored_results([case], runs_dir=runs, work_dir=tmp_path / "work")
+    assert results[0].status == "incomplete_run"
+
+
+def test_load_stored_results_ignores_runs_for_unknown_branches(tmp_path: Path):
+    runs = tmp_path / "runs"
+    _write_stored_run(runs, "2026-08-19T10-00-00Z-zzz", branch="0000000",
+                      depth="low", findings=[])
+    assert load_stored_results([_case("c1")], runs_dir=runs, work_dir=tmp_path / "work") == []

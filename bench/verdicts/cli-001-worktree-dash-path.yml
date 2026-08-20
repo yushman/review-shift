@@ -1,0 +1,44 @@
+schema_version: 1
+case_id: cli-001-worktree-dash-path
+verdicts:
+- finding_key: sha256:2f8345477a82349a7486972c1fc952ff96c12f483de426150002d15afeadd34e
+  true_defect: false
+  case_defect: false
+  reason: 'The claimed breakage does not follow: git accepts global options in any
+    order, and I verified `git -c credential.helper= -C sub rev-parse` works, so credential
+    flags prepended ahead of a `-C` would not break a submodule invocation; additionally
+    no submodule command in this file is ever built with a -C prefix, so the concern
+    is doubly hypothetical.'
+  recorded_at: '2026-08-20T07:56:41Z'
+  adjudicated_by: model
+- finding_key: sha256:7f9ff2fecbfa3f54aebf75d00d3e2d94f0ed659e11585314271f6da2b2fd5b95
+  true_defect: true
+  case_defect: false
+  reason: 'Verified in checkout.go at b130a9be: the worktree-reuse branch of cmdsForMissingRemote
+    emits `checkout -B <localBranch> FETCH_HEAD` with no opts.Force gate, while syncBranchCmds/worktreeCheckoutCmds
+    and the fresh-worktree fetch path all gate a destructive reset behind --force
+    (whose help text is ''Reset the existing local branch...''), so an existing branch
+    is force-moved without --force. The case bug is the missing `--` separator before
+    worktree paths in `worktree add`, which this finding never mentions.'
+  recorded_at: '2026-08-20T07:56:41Z'
+  adjudicated_by: model
+- finding_key: sha256:3d28381b84c6fe6aa87a71ab2c00094925b915545882ef87667868831a223767
+  true_defect: true
+  case_defect: false
+  reason: 'Same accurate claim as the other checkout -B finding: `-B` resets an existing
+    branch ref to FETCH_HEAD unconditionally in the isWorktreeAtPath branch of cmdsForMissingRemote,
+    unlike every other sync path which uses merge --ff-only unless opts.Force. Unrelated
+    to the case''s `--` end-of-options fix in the four `worktree add` call sites (fix
+    5e6aa5ab).'
+  recorded_at: '2026-08-20T07:56:41Z'
+  adjudicated_by: model
+- finding_key: sha256:70aa9d93fb64caf9636c434333ef4d51c137da9010d21f6c62f1f206f2bfe45c
+  true_defect: true
+  case_defect: false
+  reason: The claim (unconditional `checkout -B` in the reused-worktree fork-PR path
+    bypasses the --force gate used everywhere else in the file) matches the code at
+    b130a9be; note its proposed patch would break the branch-does-not-exist case,
+    but the defect described is real. Nothing to do with the case's missing `--` before
+    worktree paths.
+  recorded_at: '2026-08-20T07:56:41Z'
+  adjudicated_by: model

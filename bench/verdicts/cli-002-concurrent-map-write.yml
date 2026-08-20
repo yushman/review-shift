@@ -1,0 +1,84 @@
+schema_version: 1
+case_id: cli-002-concurrent-map-write
+verdicts:
+- finding_key: sha256:f9f4a35a19a91cebbeb4ae2627f05dd9e7cc938029aba18511c07ff85375a810
+  true_defect: true
+  case_defect: false
+  reason: 'Verified in port_forwarder.go (line 70 defer CloseSSHConnection, line 57
+    `connection: *codespaceConnection` value copy sharing one TunnelClient) and ports.go
+    ForwardPorts (a NewPortForwarder per port pair over the same codespaceConnection),
+    so any one ForwardPortToListener return closes the connection every other port
+    is using; the errgroup would also cancel the siblings, which softens the impact
+    but does not make the shared-close wrong-ownership claim false. The case bug is
+    the missing ManagerMu around TunnelManager calls, which this finding does not
+    mention.'
+  recorded_at: '2026-08-20T08:03:53Z'
+  adjudicated_by: model
+- finding_key: sha256:c4a563c31e55488672d5b1ab90151a3112e1d416d8a9d3386b9fb653228c039f
+  true_defect: false
+  case_defect: false
+  reason: 'The defer at line 267 exists, but the harm scenario does not: UpdatePortVisibility
+    is only reached from ports.go''s App.UpdatePortVisibility, which builds its own
+    CodespaceConnection and PortForwarder for that single `gh cs ports visibility`
+    invocation; ssh.go/states.go/jupyter.go each build their own connection in their
+    own process, so no SSH or Jupyter tunnel shares this TunnelClient. (The real intra-command
+    consequence -- the second port in a multi-port visibility loop reusing a closed
+    client -- is not what this finding describes.)'
+  recorded_at: '2026-08-20T08:03:53Z'
+  adjudicated_by: model
+- finding_key: sha256:c9b0ab8d8e691be40072d14b69ec446f030c167c9880547b0d1295c25c7f3c68
+  true_defect: true
+  case_defect: false
+  reason: 'ssh.go lines 245-250 at 64f4660e do return `fmt.Errorf("tunnel closed:
+    %w", err)` on a path where err is provably nil (the non-nil case returned two
+    lines above), which yields a non-nil error formatted with %!w(<nil>); the pre-migration
+    code it replaced had `err := fwd.Forward(ctx, stdio) // always non-nil`, an invariant
+    the new ConnectToForwardedPort call no longer carries. Unrelated to the case''s
+    missing TunnelManager lock.'
+  recorded_at: '2026-08-20T08:03:53Z'
+  adjudicated_by: model
+- finding_key: sha256:cdf57d8095474aa310aab1e598a98e468b2ceb9a8b71a3e2be6873777003bea9
+  true_defect: true
+  case_defect: false
+  reason: 'Confirmed the ordering: `done` is unbuffered, so the goroutine''s deferred
+    CloseSSHConnection (registered at line 267) runs concurrently with the parent''s
+    recovery `fwd.ForwardPort` in the err != nil branch, which then uses the same
+    TunnelClient for Connect/RefreshPorts -- a real race on a connection the code
+    is about to reuse. Its conclusion is overstated (CreateTunnelPort goes through
+    TunnelManager, so the ACL restore itself survives a closed client), and it is
+    not the case''s missing-mutex defect.'
+  recorded_at: '2026-08-20T08:03:53Z'
+  adjudicated_by: model
+- finding_key: sha256:aafd38924f84b8688f44380a59eba3ff797c4d06671a7f55e6859bb4c804a516
+  true_defect: false
+  case_defect: false
+  reason: 'The panic it describes at line 291 is unreachable: line 247 dereferences
+    the very same `tunnelPort.AccessControl.Entries` unconditionally on every call,
+    so a nil AccessControl crashes there long before the recovery path, and reaching
+    291 proves it is non-nil. The nil-deref concern is real but sits at line 247;
+    the finding misidentifies the dereference and its patch would guard the harmless
+    one.'
+  recorded_at: '2026-08-20T08:03:53Z'
+  adjudicated_by: model
+- finding_key: sha256:e816c6db42776e23cfdcfe1321ce5c9f930f0f7cee8c75fd440df5d127d47f25
+  true_defect: true
+  case_defect: false
+  reason: 'Compared states.go before/after 64f4660e: the old code had `defer session.Close()`
+    right after connecting and the new PollPostCreateStates adds no cleanup for the
+    forwarder, so its ForwardPortToListener goroutine and the ListenTCP listener outlive
+    the function until the caller''s ctx dies. Its claim that the TunnelClient itself
+    stays open is wrong (defer safeClose(invoker) calls cancelPF, which makes the
+    invoker''s own ForwardPortToListener return and fire CloseSSHConnection), but
+    the missing teardown it names is real. Not the case''s mutex defect.'
+  recorded_at: '2026-08-20T08:03:53Z'
+  adjudicated_by: model
+- finding_key: sha256:f84a0618f443fe0421238ac41ec62a47a74fadd694ed9cc28af16fa1626fe837
+  true_defect: true
+  case_defect: false
+  reason: '`git grep debug` over pkg/cmd/codespace at 64f4660e shows opts.debug and
+    opts.debugFile are only declared and bound to the --debug/--debug-file flags and
+    read nowhere, whereas the parent commit passed them to startLiveShareSession;
+    the flags are now dead. Nothing to do with the concurrent map writes the case
+    fixes.'
+  recorded_at: '2026-08-20T08:03:53Z'
+  adjudicated_by: model

@@ -15,7 +15,8 @@ import jsonschema
 import yaml
 
 __all__ = [
-    "Case", "CaseError", "GroundTruthRange", "is_confirmed", "load_case", "load_cases",
+    "Case", "CaseError", "GroundTruthRange", "StrictLoader", "is_confirmed", "load_case",
+    "load_cases",
 ]
 
 CASES_DIR = Path(__file__).resolve().parent / "cases"
@@ -104,15 +105,18 @@ def _parse_case(data: dict[str, Any], path: Path) -> Case:
     )
 
 
-class _StrictLoader(yaml.SafeLoader):
+class StrictLoader(yaml.SafeLoader):
     """`yaml.safe_load` resolves a duplicate key by silently keeping the last one. In a case
     file that loses ground truth without a word -- a second `ground_truth:` block overwrites
     the first -- which is exactly the class of quiet failure this bench exists to measure, so
     a duplicate key is an error here rather than a last-one-wins.
+
+    Public because `bench/verdict.py` loads verdict files with the same loader for the same
+    reason: a duplicate key there silently drops a human's judgement.
     """
 
 
-def _no_duplicate_keys(loader: _StrictLoader, node: yaml.MappingNode) -> dict[Any, Any]:
+def _no_duplicate_keys(loader: StrictLoader, node: yaml.MappingNode) -> dict[Any, Any]:
     seen: set[Any] = set()
     for key_node, _ in node.value:
         key = loader.construct_object(key_node, deep=True)
@@ -122,14 +126,14 @@ def _no_duplicate_keys(loader: _StrictLoader, node: yaml.MappingNode) -> dict[An
     return loader.construct_mapping(node, deep=True)
 
 
-_StrictLoader.add_constructor(
+StrictLoader.add_constructor(
     yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _no_duplicate_keys
 )
 
 
 def load_case(path: Path) -> Case:
     try:
-        data = yaml.load(path.read_text(), Loader=_StrictLoader)
+        data = yaml.load(path.read_text(), Loader=StrictLoader)
     except CaseError as exc:
         raise CaseError(f"{path}: {exc}") from exc
     if not isinstance(data, dict):

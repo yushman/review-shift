@@ -1,0 +1,21 @@
+schema_version: 1
+case_id: cli-003-oauth-scopes-trim
+verdicts:
+- finding_key: sha256:7c439eac2b60ab3200d8ee2d6a0bf3174657830f78bf37968a29dbff1969ef1d
+  true_defect: true
+  case_defect: true
+  reason: 'Checked tokenHasWorkflowScope at a4f96d29: it is exactly `slices.Contains(strings.Split(scopes,
+    ","), "workflow")`, and fix commit 92ae1de0 replaces it with a TrimSpace loop
+    for precisely the comma-space reason the finding gives, including the same knock-on
+    effect on the 404 guard.'
+  recorded_at: '2026-08-20T07:55:05Z'
+  adjudicated_by: model
+- finding_key: sha256:b772375e100ef2749f0091f90ce04aa99c09d26ae1d52c1e604ef594b976eabe
+  true_defect: true
+  case_defect: true
+  reason: Same claim as the other finding (untrimmed split of X-Oauth-Scopes) and
+    its before/after quote the exact line the fix commit rewrites; the reported line
+    191 is off from the real line ~296 but subject matter is the case bug, and location
+    does not decide case_defect.
+  recorded_at: '2026-08-20T07:55:05Z'
+  adjudicated_by: model

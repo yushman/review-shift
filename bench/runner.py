@@ -14,10 +14,10 @@ from pathlib import Path
 
 from bench.case import Case
 from bench.corpus import CorpusRepo
-from bench.materialize import WORK_DIR, MaterializeError, ensure_sha, materialize_repo
+from bench.materialize import WORK_DIR, MaterializeError, clone_dir, ensure_sha, materialize_repo
 from bench.scorer import CaseRunResult
 
-__all__ = ["DEPTHS", "RUNS_DIR", "run_case", "run_all"]
+__all__ = ["DEPTHS", "RUNS_DIR", "load_stored_results", "run_case", "run_all"]
 
 DEPTHS = ("smoke", "low", "medium")
 RUNS_DIR = WORK_DIR / "runs"
@@ -71,6 +71,59 @@ def run_case(
         cost_usd=run_meta.get("cost_usd", 0.0) or 0.0, status="ok", reason=None,
         run_dir=run_dir, repo_dir=repo_dir, head_sha=run_meta.get("head_sha"),
     )
+
+
+def _matches(case: Case, branch: str) -> bool:
+    """A run records the branch it reviewed, which the harness always sets to the case's
+    introducing sha. Either side may be abbreviated, so compare by prefix in both directions.
+    """
+    if not branch:
+        return False
+    return case.introducing_sha.startswith(branch) or branch.startswith(case.introducing_sha)
+
+
+def load_stored_results(
+    cases: list[Case], *, runs_dir: Path = RUNS_DIR, work_dir: Path = WORK_DIR,
+) -> list[CaseRunResult]:
+    """Reconstructs `CaseRunResult`s from runs already on disk, so stored findings can be
+    adjudicated and re-scored without paying for a review again.
+
+    When a case/depth pair was run more than once, the newest run wins -- run ids are
+    timestamp-prefixed, so directory order is chronological. Older runs are dropped rather
+    than double-counted, which would inflate yield with the same finding twice. A run
+    directory missing `findings.json` is reported as incomplete rather than skipped silently.
+    """
+    latest: dict[tuple[str, str], tuple[str, CaseRunResult]] = {}
+    for run_json in sorted(runs_dir.glob("*/*/run.json")):
+        run_dir = run_json.parent
+        try:
+            meta = json.loads(run_json.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        case = next((c for c in cases if _matches(c, meta.get("branch", ""))), None)
+        if case is None:
+            continue
+        depth = meta.get("depth", "")
+        run_id = meta.get("run_id", run_dir.name)
+        findings_path = run_dir / "findings.json"
+        if not findings_path.exists():
+            result = CaseRunResult(
+                case=case, depth=depth, findings=None, cost_usd=0.0, status="incomplete_run",
+                reason=f"{run_dir} has run.json but no findings.json",
+            )
+        else:
+            result = CaseRunResult(
+                case=case, depth=depth,
+                findings=json.loads(findings_path.read_text())["findings"],
+                cost_usd=meta.get("cost_usd", 0.0) or 0.0, status="ok", reason=None,
+                run_dir=run_dir, repo_dir=clone_dir(case.repo, work_dir),
+                head_sha=meta.get("head_sha"),
+            )
+        key = (case.id, depth)
+        previous = latest.get(key)
+        if previous is None or previous[0] <= run_id:
+            latest[key] = (run_id, result)
+    return [result for _, (_, result) in sorted(latest.items())]
 
 
 def run_all(

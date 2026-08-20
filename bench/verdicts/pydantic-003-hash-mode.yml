@@ -1,0 +1,55 @@
+schema_version: 1
+case_id: pydantic-003-hash-mode
+verdicts:
+- finding_key: sha256:10d2b548f4261f0e41c3e5eac1588d2d6d381076c5811b7fb09e92dea3323b81
+  true_defect: true
+  case_defect: true
+  reason: 'Read test_hashable_types at b095cd4a: it only asserts Model.model_json_schema()
+    == json_schema and never calls hash(), so the claim is accurate and the fix commit
+    220cd3d2 indeed shipped without adding a test. It also names the case''s defect
+    explicitly (''hash(type(self.mode)) ... hashing type instead of value''), which
+    is the subject matter the case is about, so I counted it as case_defect despite
+    it being filed as a test gap.'
+  recorded_at: '2026-08-20T08:07:07Z'
+  adjudicated_by: model
+- finding_key: sha256:2bd71b7b0fb09e51cf208c8af7dac3b493c1371532ff53f615d4a929cb925527
+  true_defect: true
+  case_defect: true
+  reason: Examples.__hash__ at b095cd4a is `hash(type(self.mode))` and fix 220cd3d2
+    changes exactly that line to `hash(self.mode)`; the finding's before/after are
+    identical to the upstream fix.
+  recorded_at: '2026-08-20T08:07:07Z'
+  adjudicated_by: model
+- finding_key: sha256:7ffee8411d3bdf396e9c9bd598defc525371b970c60c4001da2179dda92724ea
+  true_defect: true
+  case_defect: true
+  reason: WithJsonSchema.__hash__ hashes the type of mode, which can only be str or
+    NoneType, so the hash is degenerate; the proposed `hash(self.mode)` is verbatim
+    what fix 220cd3d2 applied.
+  recorded_at: '2026-08-20T08:07:07Z'
+  adjudicated_by: model
+- finding_key: sha256:c3ea85a1712e009d1084600af431de8900305d27c6f18b0ecf66626a7175e520
+  true_defect: true
+  case_defect: true
+  reason: Accurate down to the detail that only two hash values are possible and that
+    __eq__ still keeps lookups correct; the patch matches fix 220cd3d2's `hash(self.mode)`
+    on the WithJsonSchema line and it also flags the twin in Examples.
+  recorded_at: '2026-08-20T08:07:07Z'
+  adjudicated_by: model
+- finding_key: sha256:b45203c7823457922e3d8513af19c23738e603d8f58af26373f9c018a6c0caae
+  true_defect: true
+  case_defect: true
+  reason: 'Same defect stated more mildly: __hash__ derives from type(self.mode) rather
+    than the instance''s field values, which is the exact wrongness fix 220cd3d2 repairs.
+    Its ''satisfies Python''s hash contract'' framing is in fact correct (equal objects
+    still hash equally), and its slight overstatement -- one bucket rather than two
+    -- does not change the substance.'
+  recorded_at: '2026-08-20T08:07:07Z'
+  adjudicated_by: model
+- finding_key: sha256:027e4e68c3b5832a17e91d7dc5bd1121361af5752e8ffb9a16917c953c406bfc
+  true_defect: true
+  case_defect: true
+  reason: The Examples.__hash__ half of the same defect, on ground-truth line 2142,
+    with the same `hash(self.mode)` patch the fix commit applied.
+  recorded_at: '2026-08-20T08:07:07Z'
+  adjudicated_by: model

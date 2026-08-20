@@ -1,0 +1,42 @@
+schema_version: 1
+case_id: duckduckgo-002-onboarding-resume-crash
+verdicts:
+- finding_key: sha256:c430b9a3803e0eee907340b6fb69cc7239287184c4ae559f45f531741bdfe7b0
+  true_defect: true
+  case_defect: true
+  reason: LaunchViewModel.kt lines 92-94 at 99bfad9f are exactly the `else -> throw
+    IllegalArgumentException` this finding objects to, and fix 718fd1c5 replaces that
+    else with `LinearOnboardingHost.BrowserActivity -> Command.Home()` for precisely
+    the reason given (a non-OnboardingActivity host reaching this branch crashes launch).
+    I also confirmed against the parent commit that the branch really was a `// TODO
+    in the future PR` no-op before.
+  recorded_at: '2026-08-20T08:08:58Z'
+  adjudicated_by: model
+- finding_key: sha256:fe792e52002e59f32f986436369d1c02345d3652c3b6cdaa94f5acdcd2cb426f
+  true_defect: true
+  case_defect: false
+  reason: 'Verified the asymmetry it cites: LaunchViewModel line 85 reads the toggle
+    inline under viewModelScope (Main), while OnboardingViewModel.initializePages/onOnboardingDone/onOnboardingSkipped
+    all wrap the same toggle in withContext/launch(dispatchers.io()); OnboardingBrandDesignUpdateToggles
+    is a @ContributesRemoteFeature whose generated Toggle.Store is SharedPreferences-backed
+    (see SSLCertificatesFeatureStore for the pattern), so the main-thread disk-read
+    concern is grounded. Nothing to do with the else-throw crash the case fixes.'
+  recorded_at: '2026-08-20T08:08:58Z'
+  adjudicated_by: model
+- finding_key: sha256:10623337c858574cd06dc74de582c2a2ba067d04a0c7b63120e20ab1d3cbaa91
+  true_defect: true
+  case_defect: true
+  reason: Quotes the exact else-throw block that fix 718fd1c5 removes and predicts
+    the exact production failure the fix commit describes (a plan whose current step
+    is BrowserActivity-hosted crashing app launch instead of routing to Home).
+  recorded_at: '2026-08-20T08:08:58Z'
+  adjudicated_by: model
+- finding_key: sha256:893551aa35a02b651ee68230b939eff785e80d2920affb7ffe3ebc01ba9348c4
+  true_defect: true
+  case_defect: true
+  reason: 'Same defect as the case: the else-throw on a non-OnboardingActivity host
+    crashes the new-user launch path, and it correctly notes the bootstrapper only
+    guarantees InProgress, not the host. Reported at line 96 rather than 92-94, which
+    does not affect subject matter.'
+  recorded_at: '2026-08-20T08:08:58Z'
+  adjudicated_by: model
