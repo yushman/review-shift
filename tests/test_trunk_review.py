@@ -525,6 +525,42 @@ def test_trunk_medium_depth_narrows_to_the_commits_own_changes(
     assert statuses[c1] == "invalid"
 
 
+def test_trunk_high_depth_narrows_to_the_commits_own_changes(
+    trunk_repo: Path, tmp_path: Path
+):
+    """The trunk half of the same invariant at the new deepest level. Both paths now read
+    `batch.DEPTHS_READING_BEYOND_DIFF`; this test exists so that reading it from one place is
+    verified rather than assumed (ADR-026 D3)."""
+    out_dir = tmp_path / "runs"
+    argv = [
+        "run", "--trunk", "--base", "main", "--repo", str(trunk_repo),
+        "--out-dir", str(out_dir), "--depth", "high",
+    ]
+    cli.main(argv)  # bootstrap
+    time.sleep(1.1)
+
+    c1 = _new_file_commit(trunk_repo, "c1.txt", "v1\n", "c1")
+
+    events = _finding_events("f.txt", "base\n", "changed\n")
+    with mock_patch("review_shift.review._invoke_with_timeout", return_value=(events, False)):
+        cli.main(argv)
+
+    run_dir = sorted(_run_dirs(out_dir))[-1]
+    run_meta = json.loads((run_dir / "run.json").read_text())
+    statuses = {u["sha"]: u["status"] for u in run_meta["units"]}
+    assert statuses[c1] == "invalid"
+
+
+def test_both_paths_read_one_definition_of_which_depths_are_narrowed():
+    """ADR-026 D3's named hazard, pinned directly: the branch and trunk paths must not carry
+    their own copies of this set."""
+    from review_shift import batch
+    assert batch.DEPTHS_READING_BEYOND_DIFF == frozenset({"medium", "high"})
+    source = (Path(batch.__file__)).read_text()
+    assert source.count("DEPTHS_READING_BEYOND_DIFF") == 3  # definition + branch + trunk
+    assert 'depth == "medium"' not in source
+
+
 # --- restructure-depth-tiers: --dry-run on the trunk path ---------------------------------
 
 

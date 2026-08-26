@@ -33,13 +33,12 @@ down with the ladder. Before running any command:
    ```
    review-shift run   # discovers and reviews every branch per .review-shift/config.yml
    ```
-2. If the request asks for `depth: medium` (or just "deep"/"thorough" review): refuse.
-   `medium` is a real depth (`review-shift run --depth medium`) but is out of scope in-session
-   per ADR-006 — an interactive session is not the place for the longest, widest-reading
-   review. Offer `depth: low` instead, or the standalone command for `medium`.
-3. If the request asks for `depth: high`: that value no longer exists at all. Say so and name
-   the levels that do (`smoke`, `low`, `medium`; the previous `high` is now `medium`) rather
-   than pointing at a standalone command that would also refuse it.
+2. If the request asks for `depth: medium` or `depth: high` (or just "deep"/"thorough"
+   review): refuse. Both are real depths (`review-shift run --depth medium|high`) but are out
+   of scope in-session per ADR-006 — an interactive session is not the place for the longest
+   review. `high` additionally works a ten-angle find/verify/sweep pipeline over the same
+   files, which is the slowest thing this tool does. Offer `depth: low` instead, or the
+   standalone command for either.
 
 Do not silently downgrade a `medium` request to `low` and proceed -- refuse first, explain
 why, and only continue if the user asks for `smoke` or `low` explicitly.
@@ -63,10 +62,12 @@ why, and only continue if the user asks for `smoke` or `low` explicitly.
       localization (CLAUDE.md, "where bugs will be silent" #3).
 4. Resolve depth: `smoke` or `low`, defaulting to `low` if unspecified.
 5. Check the installed CLI is new enough: `review-shift --version`. This skill requires
-   review-shift >= 0.1.0 (the version that first shipped the `--branch`/`--depth` flags this
-   skill relies on). If the command is not found, or prints an older version, stop and tell
-   the user to upgrade (`pipx upgrade review-shift`, or reinstall) instead of running `run`
-   and surfacing whatever flag-mismatch error it would raise on its own.
+   review-shift >= 0.2.0, the version that relabelled the depth ladder. The check is not a
+   formality here: against an older CLI `--depth smoke` fails outright, but `--depth low` is
+   accepted and runs the *previous* `low` -- changed hunks only, instead of changed files in
+   full. That is a quieter, shallower review than the one asked for, with nothing on screen to
+   say so. If the command is not found, or prints an older version, stop and tell the user to
+   upgrade (`pipx upgrade review-shift`, or reinstall) rather than running `run`.
 6. Select the command from the branch and base resolved above -- `--base` is passed explicitly
    in both rows, even when `origin/HEAD` would also resolve it, so the command is reproducible
    on its own:

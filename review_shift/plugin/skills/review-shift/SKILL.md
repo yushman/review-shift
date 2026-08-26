@@ -33,13 +33,12 @@ down with the ladder. Before running any command:
    ```
    review-shift run   # discovers and reviews every branch per .review-shift/config.yml
    ```
-2. If the request asks for `depth: medium` (or just "deep"/"thorough" review): refuse.
-   `medium` is a real depth (`review-shift run --depth medium`) but is out of scope in-session
-   per ADR-006 — an interactive session is not the place for the longest, widest-reading
-   review. Offer `depth: low` instead, or the standalone command for `medium`.
-3. If the request asks for `depth: high`: that value no longer exists at all. Say so and name
-   the levels that do (`smoke`, `low`, `medium`; the previous `high` is now `medium`) rather
-   than pointing at a standalone command that would also refuse it.
+2. If the request asks for `depth: medium` or `depth: high` (or just "deep"/"thorough"
+   review): refuse. Both are real depths (`review-shift run --depth medium|high`) but are out
+   of scope in-session per ADR-006 — an interactive session is not the place for the longest
+   review. `high` additionally works a ten-angle find/verify/sweep pipeline over the same
+   files, which is the slowest thing this tool does. Offer `depth: low` instead, or the
+   standalone command for either.
 
 Do not silently downgrade a `medium` request to `low` and proceed -- refuse first, explain
 why, and only continue if the user asks for `smoke` or `low` explicitly.

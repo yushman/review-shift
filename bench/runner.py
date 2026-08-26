@@ -19,7 +19,7 @@ from bench.scorer import CaseRunResult
 
 __all__ = ["DEPTHS", "RUNS_DIR", "load_stored_results", "run_case", "run_all"]
 
-DEPTHS = ("smoke", "low", "medium")
+DEPTHS = ("smoke", "low", "medium", "high")
 RUNS_DIR = WORK_DIR / "runs"
 
 
@@ -117,7 +117,7 @@ def load_stored_results(
                 findings=json.loads(findings_path.read_text())["findings"],
                 cost_usd=meta.get("cost_usd", 0.0) or 0.0, status="ok", reason=None,
                 run_dir=run_dir, repo_dir=clone_dir(case.repo, work_dir),
-                head_sha=meta.get("head_sha"),
+                head_sha=meta.get("head_sha"), prompt_hash=meta.get("prompt_hash"),
             )
         key = (case.id, depth)
         previous = latest.get(key)

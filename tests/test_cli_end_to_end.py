@@ -86,6 +86,49 @@ def test_run_writes_full_run_directory(branched_repo: Path, tmp_path: Path):
     assert check.returncode == 0, check.stderr
 
 
+def test_high_depth_from_config_file_alone_reaches_build_command(
+    branched_repo: Path, tmp_path: Path
+):
+    """The same dead-config-path check for the new top rung, and it is deliberately not a unit
+    test on the depth resolver: all three of this project's dead-config-path bugs (`--depth`,
+    `--model`, the `REVIEW_SHIFT__*` env overrides) came from an eager argparse default and
+    every one of them would have passed a test on the function. Only a real `cli.main(argv)`
+    with the value set *nowhere but the file* catches this class."""
+    config_dir = branched_repo / ".review-shift"
+    config_dir.mkdir()
+    (config_dir / "config.yml").write_text("version: 3\ndepth: high\n")
+
+    structured_output = {
+        "schema_version": 1,
+        "findings": [
+            {"file": "src/bar.py", "line": 1, "severity": "low", "category": "style",
+             "rationale": "minor"},
+        ],
+    }
+    out_dir = tmp_path / "runs"
+    argv = ["run", "--branch", "feature/x", "--base", "main",
+            "--repo", str(branched_repo), "--out-dir", str(out_dir)]
+
+    captured_cmds = []
+
+    def _side_effect(cmd, soft_timeout_s, hard_timeout_s):
+        captured_cmds.append(cmd)
+        return _fake_claude_events(structured_output), False
+
+    with mock_patch("review_shift.review._invoke_with_timeout", side_effect=_side_effect):
+        exit_code = cli.main(argv)
+
+    assert exit_code == 0
+    cmd = captured_cmds[0]
+    assert cmd[cmd.index("--effort") + 1] == "xhigh"
+    prompt = cmd[2]
+    assert "review-shift — depth: high" in prompt
+    assert "## Phase 1 — Find candidates" in prompt
+
+    run_meta = json.loads((_run_dirs(out_dir)[0] / "run.json").read_text())
+    assert run_meta["depth"] == "high"
+
+
 def test_deepest_depth_from_config_file_alone_reaches_build_command(
     branched_repo: Path, tmp_path: Path
 ):
@@ -262,17 +305,15 @@ def test_run_with_no_findings_exits_zero(branched_repo: Path, tmp_path: Path):
 # --- restructure-depth-tiers: the retired depth and --dry-run at the CLI surface ----------
 
 
-def test_retired_depth_is_refused_naming_the_levels_and_the_remap(capsys):
-    """cli-surface spec "A removed enum value is rejected with its replacement named":
-    argparse's bare "invalid choice" tells a user whose script says `--depth high` nothing
-    about where `high` went, and a silent alias to `medium` would be worse still."""
+def test_unknown_depth_is_refused_naming_the_four_levels(capsys):
+    """cli-surface spec: argparse's bare "invalid choice" tells a user nothing, so the flag
+    routes through the same refusal text config validation uses."""
     with pytest.raises(SystemExit) as excinfo:
-        cli.main(["run", "--depth", "high"])
+        cli.main(["run", "--depth", "paranoid"])
     assert excinfo.value.code == 2
 
     err = capsys.readouterr().err
-    assert "smoke, low, medium" in err
-    assert "`high` is now `medium`" in err
+    assert "smoke, low, medium, high" in err
 
 
 def test_dry_run_combines_with_any_depth(branched_repo: Path, tmp_path: Path):

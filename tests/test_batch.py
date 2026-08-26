@@ -627,6 +627,33 @@ def test_medium_depth_finding_against_unchanged_file_is_retried_then_invalid(
     assert len(raw_files) == 3
 
 
+def test_high_depth_finding_against_unchanged_file_is_retried_then_invalid(
+    branched_repo: Path, tmp_path: Path
+):
+    """add-depth-high-pipeline: `high` reads past the diff exactly as `medium` does, so it
+    must be confined exactly as `medium` is. This test and its trunk twin are what keep
+    `DEPTHS_READING_BEYOND_DIFF` honest -- ADR-026 records that while the two paths carried
+    separate string literals, a new tier could move one and leave the other reviewing with no
+    floor, silently."""
+    out_dir = tmp_path / "runs"
+    argv = ["run", "--branch", "feature/x", "--base", "main", "--depth", "high",
+            "--repo", str(branched_repo), "--out-dir", str(out_dir)]
+    events = _events(
+        [{"file": "src/foo.py", "line": 1, "severity": "low", "category": "style",
+          "rationale": "r"}]
+    )
+    with mock_patch(
+        "review_shift.review._invoke_with_timeout", return_value=(events, False)
+    ) as mock_invoke:
+        exit_code = cli.main(argv)
+
+    assert exit_code == 2
+    assert mock_invoke.call_count == 3
+    run_dir = next(p for p in out_dir.iterdir() if p.is_dir() and not p.is_symlink())
+    run_meta = json.loads((run_dir / "run.json").read_text())
+    assert run_meta["error"]["type"] == "invalid_model_output"
+
+
 def test_low_depth_accepts_the_same_finding_medium_would_reject(
     branched_repo: Path, tmp_path: Path
 ):

@@ -5,24 +5,18 @@ from __future__ import annotations
 
 from typing import Any
 
-# restructure-depth-tiers D1/D2: the ladder was relabelled one rung down and `high` was
-# removed outright. Every surface that accepts a depth (the CLI flag, the config schema)
-# reads this one set, and every refusal reads the same message -- a user who types the
-# retired name must be told what it maps to, never silently served a shallower level.
-DEPTH_VALUES: tuple[str, ...] = ("smoke", "low", "medium")
-
-_RELABEL_NOTE = (
-    "the ladder was relabelled: the previous `high` is now `medium`, the previous `medium` "
-    "is now `low`, and the previous `low` is now `smoke`"
-)
+# restructure-depth-tiers D1/D2: the ladder was relabelled one rung down. Every surface that
+# accepts a depth (the CLI flag, the config schema) reads this one set, and every refusal
+# reads the same message. add-depth-high-pipeline refilled the `high` slot the relabel had
+# emptied, so the name is accepted again -- but as the deepest tier, not as the one it used
+# to name. `migrations._V2_TO_V3_DEPTH` is what keeps an old config's `high` pointing at the
+# level it actually meant; the two must not be reconciled.
+DEPTH_VALUES: tuple[str, ...] = ("smoke", "low", "medium", "high")
 
 
 def depth_error_message(value: object) -> str:
     accepted = ", ".join(DEPTH_VALUES)
-    msg = f"invalid depth {value!r}: accepted values are {accepted}"
-    if value == "high":
-        return f"{msg} -- {_RELABEL_NOTE}"
-    return msg
+    return f"invalid depth {value!r}: accepted values are {accepted}"
 
 
 SCHEMA_V3: dict[str, Any] = {

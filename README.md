@@ -63,8 +63,8 @@ that file is the reference. A few fields worth knowing about before you first tu
 
 | Field | Default | |
 |---|---|---|
-| `depth` | `medium` | `smoke` \| `low` \| `medium` — sets the review prompt, effort and max-findings preset; see the ladder below |
-| `scope.full_file_review` | `auto` | `auto` \| `always` \| `never` — overrides depth's default scope; `never` floors it at changed hunks, `always` raises it to full changed files, `auto` follows depth. See Limitations for what this controls at `medium` |
+| `depth` | `medium` | `smoke` \| `low` \| `medium` \| `high` — sets the review prompt, effort and scope preset; see the ladder below |
+| `scope.full_file_review` | `auto` | `auto` \| `always` \| `never` — overrides depth's default scope; `never` floors it at changed hunks, `always` raises it to full changed files, `auto` follows depth. See Limitations for what this controls at `medium` and `high` |
 | `discovery.patterns` | `[]` | fnmatch globs (or `re:`-prefixed regex) restricting which branches get discovered; empty means "every recently-moved branch" |
 | `discovery.max_age_hours` | `24` | a branch is eligible only if its last commit is within this window |
 | `runtime.budget_usd` | `10.00` | spend cap for one branch's review |
@@ -76,28 +76,45 @@ that file is the reference. A few fields worth knowing about before you first tu
 
 ### Depth
 
-| `depth` | what the model reads | effort | ≈ per branch |
+| `depth` | what the model reads | how it reviews it | effort |
 |---|---|---|---|
-| `smoke` | the changed hunks only | `low` | ~$0.38, ~1 min |
-| `low` | the changed files in full | `medium` | ~$0.52, ~2 min |
-| `medium` | the changed files plus their direct first-level imports | `high` | ~$0.77, ~3.5 min |
+| `smoke` | the changed hunks only | one pass | `low` |
+| `low` | the changed files in full | one pass | `medium` |
+| `medium` | the changed files plus their direct first-level imports | one pass | `high` |
+| `high` | the same as `medium` — no wider | ten angles, then verify, then a sweep for gaps | `xhigh` |
 
-New installs default to `medium`. Nightly runs are unattended, so three and a half minutes per
-branch costs nothing a sleeping user notices, and spend stays fused by
-`runtime.total_budget_usd` regardless. Drop to `low` if you review many branches a night, or to
-`smoke` for a fast sanity pass — `smoke` sees only the hunks, which is enough to spot a local
-mistake and not enough to judge how much it matters.
+**The ladder's axis changes at the top rung, and the table says so rather than implying a wider
+read.** The first three levels differ by how much material the model is given. `high` is given
+exactly what `medium` is given and differs by what it does with it: it works ten independent
+angles over the diff in sequence, deduplicates and verifies what they turn up, then takes a
+final pass looking only for what the first ten missed. It is the slowest and most expensive
+level by a clear margin.
 
-The figures are indicative, measured on a small benchmark corpus; they are not a published
-quality claim (see Limitations).
+New installs default to `medium`. Nightly runs are unattended, so a few minutes per branch
+costs nothing a sleeping user notices, and spend stays fused by `runtime.total_budget_usd`
+regardless. Drop to `low` if you review many branches a night, or to `smoke` for a fast sanity
+pass — `smoke` sees only the hunks, which is enough to spot a local mistake and not enough to
+judge how much it matters. Reach for `high` on a branch you actually care about, not on ten
+branches a night.
 
-> **`high` no longer exists.** Up to v0.1.3 the ladder was `low | medium | high`; every level
-> kept its exact behavior and moved one name down (`low`→`smoke`, `medium`→`low`,
-> `high`→`medium`), and `high` was removed rather than aliased — the slot is reserved for a
-> genuinely deeper tier. `--depth high` now fails and says what to write instead. Your
-> `config.yml` needs no edit: a `version: 2` file is migrated in memory on load, remapping
-> `depth` by the same table, and the file on disk is left untouched. The first run after
-> upgrading re-reviews every branch, because the prompt files changed.
+Cost and duration per level are not published here: the figures that used to sit in this table
+were measured before the ladder was relabelled and do not describe today's levels. See
+Limitations — no quality claim is made without the bench, and the corpus is currently six cases,
+which is far too small for one.
+
+> **`high` means something new.** Up to v0.1.3 the ladder was `low | medium | high`; every
+> level kept its exact behavior and moved one name down (`low`→`smoke`, `medium`→`low`,
+> `high`→`medium`), and `high` was removed rather than aliased. It is now back, as the deepest
+> level — but it is **not** the old `high`. The old `high` is what `medium` does today.
+>
+> Two consequences worth knowing:
+>
+> - **`--depth high` used to fail and now runs the most expensive level.** If a script of
+>   yours depends on that refusal, change it. `runtime.budget_usd` and
+>   `runtime.total_budget_usd` still bound the spend.
+> - **Your `version: 2` `config.yml` needs no edit and is not affected.** A v2 file saying
+>   `depth: high` is migrated in memory to `medium` — the level it actually meant — and does
+>   not follow the name to the new tier. The file on disk is left untouched.
 
 Any scalar `runtime`/`discovery`/`patch` field (plus `depth`/`base_branch`) can also be set via
 an env var, `REVIEW_SHIFT__<SECTION>__<FIELD>` (e.g.
@@ -258,14 +275,16 @@ problems does not look like a broken job.
 - **Secret masking reduces exposure, it does not guarantee it.** Regex heuristics miss custom
   token formats, and the agent has its own filesystem access. Not for code under regulatory
   constraints.
-- **At `depth: medium` — the default — the agent reads files outside the branch's changes.**
-  Scope is the changed files plus their direct first-level imports, and the model reaches those
-  imported files with its own `Read`/`Grep`/`Glob`, not through the diff. `scope.exclude_paths`
-  masks secret values in the diff `review-shift` sends — it does not constrain what the agent
-  reads for itself, so an unchanged imported file is outside the redactor's reach. Findings are
-  still confined to the branch's own changed files (an imported file is context, never a report
-  target), but the read itself is wider. Set `scope.full_file_review: never` to run `medium`'s
-  prompt and effort without the agent reading beyond the diff, or drop to `low`.
+- **At `depth: medium` — the default — and at `depth: high`, the agent reads files outside the
+  branch's changes.** Scope at both levels is the changed files plus their direct first-level
+  imports, and the model reaches those imported files with its own `Read`/`Grep`/`Glob`, not
+  through the diff. `scope.exclude_paths` masks secret values in the diff `review-shift` sends
+  — it does not constrain what the agent reads for itself, so an unchanged imported file is
+  outside the redactor's reach. Findings are still confined to the branch's own changed files
+  (an imported file is context, never a report target), but the read itself is wider. `high`
+  does not widen this any further than `medium`: the two share one read contour. Set
+  `scope.full_file_review: never` to run either level's prompt and effort without the agent
+  reading beyond the diff, or drop to `low`.
 - **No quality numbers are published yet.** Recall and precision are only claimed once the
   benchmark bench exists (v0.2). What v0.1 measures is patch applicability.
 - **Run artifacts contain code fragments** and live in your working tree.

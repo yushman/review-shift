@@ -36,6 +36,11 @@ DEPTH_PARAMS = {
     "smoke": DepthParams(effort="low", budget_usd=0.50, max_findings=20),
     "low": DepthParams(effort="medium", budget_usd=2.00, max_findings=50),
     "medium": DepthParams(effort="high", budget_usd=5.00, max_findings=100),
+    # add-depth-high-pipeline: the ladder's axis changes here. `smoke`/`low`/`medium` differ by
+    # how much is read; `high` reads exactly what `medium` reads and differs by the procedure
+    # prompts/high.md prescribes over it. `max_findings` is unread in this row as in every
+    # other one (ADR-002).
+    "high": DepthParams(effort="xhigh", budget_usd=8.00, max_findings=150),
 }
 
 # add-depth-high design.md D1: the resolved scope is one of three monotone widths. `full_files`
@@ -51,6 +56,7 @@ DEPTH_SCOPE_DEFAULT = {
     "smoke": SCOPE_HUNKS,
     "low": SCOPE_FULL_FILES,
     "medium": SCOPE_FULL_FILES_PLUS_IMPORTS,
+    "high": SCOPE_FULL_FILES_PLUS_IMPORTS,
 }
 
 _SCOPE_OVERRIDE_TEXT = {
