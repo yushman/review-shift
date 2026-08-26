@@ -53,3 +53,79 @@ verdicts:
     with the same `hash(self.mode)` patch the fix commit applied.
   recorded_at: '2026-08-20T08:07:07Z'
   adjudicated_by: model
+- finding_key: sha256:ff5287e92360815de678a4ed09bfc5181af4e170b7d9e94c5d0e56db7848903c
+  true_defect: true
+  case_defect: true
+  reason: json_schema.py:2111-2112 is literally `return hash(type(self.mode))`; mode
+    is a str literal or None, so all non-None modes hash to hash(str) and 'validation'/'serialization'
+    collide, while the dataclass __eq__ compares the value. That is exactly the known
+    defect (hash the mode value, not its type).
+  recorded_at: '2026-08-26T17:54:52Z'
+  adjudicated_by: model
+- finding_key: sha256:96725f00f900ed54f01eb7fae938ff01f56f6a09d5da444609a43539b420a467
+  true_defect: true
+  case_defect: true
+  reason: json_schema.py:2112 `hash(type(self.mode))` - hash(str) for every non-None
+    mode, so the two literal modes collide while __eq__ discriminates them; the hash/eq
+    contract still holds, as stated. Same defect the later fix corrects.
+  recorded_at: '2026-08-26T17:54:52Z'
+  adjudicated_by: model
+- finding_key: sha256:d3d829133b335d1f7e654ba5ed24a06b347ee58522a8442e6061f216ca732f0f
+  true_defect: true
+  case_defect: true
+  reason: 'json_schema.py:2111-2112: the hash is derived solely from type(self.mode)
+    while the dataclass __eq__ compares json_schema and mode, so unequal instances
+    hash identically - all factually correct. It fingers the same buggy expression
+    and the same collision behaviour as the known type-vs-value hash defect, though
+    it frames the consequence as the ignored json_schema field.'
+  recorded_at: '2026-08-26T17:54:52Z'
+  adjudicated_by: model
+- finding_key: sha256:5ad32d011879d2ca05d4780ffff54138d052990935ad59e2bd1ba29b430a416b
+  true_defect: true
+  case_defect: true
+  reason: json_schema.py:2142 - Examples.__hash__ is `hash(type(self.mode))`, so unequal
+    instances collide while __eq__ compares all fields; correct about the code and
+    about the same buggy expression the fix rewrites.
+  recorded_at: '2026-08-26T17:54:52Z'
+  adjudicated_by: model
+- finding_key: sha256:273df69c1b6af8599d87c4bcb0f8f8b38f07d3c9931acb6a8f8f38b0f487d013
+  true_defect: true
+  case_defect: true
+  reason: 'json_schema.py:2142 `hash(type(self.mode))`: both string modes hash as
+    hash(str), only None differs; the claim and the suggested hash(self.mode) match
+    the known defect precisely.'
+  recorded_at: '2026-08-26T17:54:52Z'
+  adjudicated_by: model
+- finding_key: sha256:7c205aafcdf9942714aea2121b7b97adaf2dce1f8b58f09d3e3eebb57abda24e
+  true_defect: true
+  case_defect: true
+  reason: json_schema.py:2141-2142 - Examples.__hash__ hashes type(self.mode) instead
+    of self.mode (and duplicates WithJsonSchema's body verbatim); both statements
+    check out against the file, and the hash-the-type point is the known defect.
+  recorded_at: '2026-08-26T17:54:52Z'
+  adjudicated_by: model
+- finding_key: sha256:404fb015be281dc7bb0583e682220167255c780cc7cb180e16cbe2747d68311e
+  true_defect: true
+  case_defect: true
+  reason: 'Read json_schema.py:2096-2112: mode is `Literal[''validation'',''serialization'']
+    | None`, __eq__ is dataclass-generated over both fields, __hash__ returns hash(type(self.mode)).
+    Every stated consequence checks out; same defect as the fix.'
+  recorded_at: '2026-08-26T19:24:35Z'
+  adjudicated_by: model
+- finding_key: sha256:326a0138aebbf5b0b83932fdad6d66db7ed98c93dd608ee9b6689e8a9c67eb26
+  true_defect: true
+  case_defect: true
+  reason: Confirmed two textually identical `return hash(type(self.mode))` occurrences
+    at json_schema.py:2112 and 2142; the second belongs to Examples, whose mode is
+    the same Literal|None field. Same defect the fix corrected at both sites.
+  recorded_at: '2026-08-26T19:24:35Z'
+  adjudicated_by: model
+- finding_key: sha256:f9d9351317aaed143607f9710a59f7a22d0fed3932b794565ce8d5f6975e4a88
+  true_defect: true
+  case_defect: false
+  reason: test_hashable_types (tests/test_json_schema.py:4440-4472) only asserts model_json_schema()
+    output and never calls hash(), so it passes with either __hash__ body. Accurate
+    test-gap claim, but it reports the missing coverage rather than the hash defect
+    itself.
+  recorded_at: '2026-08-26T19:24:35Z'
+  adjudicated_by: model

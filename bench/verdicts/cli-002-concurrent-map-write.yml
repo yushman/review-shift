@@ -82,3 +82,79 @@ verdicts:
     fixes.'
   recorded_at: '2026-08-20T08:03:53Z'
   adjudicated_by: model
+- finding_key: sha256:5854dd817c8bcb0bd17dbc14dde8baf02290c295d7e9254f378cdf02d55fe67e
+  true_defect: true
+  case_defect: false
+  reason: 'pkg/cmd/codespace/ssh.go:245-250 at 64f4660: after `if err != nil { return
+    ... }` the stdio branch does `return fmt.Errorf("tunnel closed: %w", err)` with
+    err provably nil, so a clean --stdio session always returns a non-nil `tunnel
+    closed: %!w(<nil>)` error. Unrelated to the missing TunnelManager lock in the
+    note.'
+  recorded_at: '2026-08-26T17:54:52Z'
+  adjudicated_by: model
+- finding_key: sha256:cc0854eec2ed8b1934b212f183a6c2bf48067fbdcd246557b461667880d59d2e
+  true_defect: true
+  case_defect: false
+  reason: 'jupyter.go:83-86 builds ForwardPortOpts{Port: serverPort} with no KeepAlive
+    (parent used liveshare.NewPortForwarder(..., true)); with KeepAlive false ConnectToForwardedPort
+    never wraps in trafficMonitor (port_forwarder.go:208-212), so nothing ever sends
+    on keepAliveReason and invoker.heartbeat''s `i.fwd.GetKeepAliveReason()` (invoker.go:270,
+    a bare `<-fwd.keepAliveReason`) blocks after the first tick. Not the locking defect.'
+  recorded_at: '2026-08-26T17:54:52Z'
+  adjudicated_by: model
+- finding_key: sha256:2219eb8e9d61ee5cf0ccc6142c04733ecc0dc010148cf27cdf3030448cca486c
+  true_defect: false
+  case_defect: false
+  reason: UpdatePortVisibility dereferences the very same `tunnelPort.AccessControl.Entries`
+    unconditionally at port_forwarder.go:247 before the goroutine ever runs, and tunnelPort
+    is never reassigned; so if AccessControl were nil the panic happens at 247 and
+    line 291 is never reached with a nil pointer. The claimed 'panic inside the recovery
+    path' is unreachable as described.
+  recorded_at: '2026-08-26T17:54:52Z'
+  adjudicated_by: model
+- finding_key: sha256:05e0a6852a7a8000799c19da92533eccd1402a3852bf3864c764f75b5ff7b840
+  true_defect: false
+  case_defect: false
+  reason: rpc.CreateInvoker's goroutine calls fwd.ForwardPortToListener (invoker.go:100-107),
+    which registers `defer fwd.CloseSSHConnection()` (port_forwarder.go:70); `defer
+    safeClose(invoker, &err)` in printOpenSSHConfig calls invoker.Close -> i.cancelPF(),
+    which cancels pfctx and makes that function return, running the deferred close.
+    The tunnel connection is therefore closed, so the claimed per-codespace connection
+    leak does not hold.
+  recorded_at: '2026-08-26T17:54:52Z'
+  adjudicated_by: model
+- finding_key: sha256:5ac1832e34dde28197f2ca993049e83dd05b818efb9d44a0a131bd0241d92385
+  true_defect: true
+  case_defect: false
+  reason: 'port_forwarder.go:72-103: `done` is unbuffered and the outer select returns
+    on ctx.Done(); the inner goroutine then blocks forever on `done <- ...` (connectListenerToForwardedPort
+    returns a non-nil ctx.Err() on cancel), so every cancellation during setup leaks
+    that goroutine. Real, but not the missing-lock defect.'
+  recorded_at: '2026-08-26T17:54:52Z'
+  adjudicated_by: model
+- finding_key: sha256:7e418caa6e97385ce4fc0cf4cedcc20b5f8eac7a19182a21ddf3ea591ca56820
+  true_defect: true
+  case_defect: false
+  reason: 'The rationale describes ssh.go:245-250 correctly (nil err re-wrapped into
+    `tunnel closed: %!w(<nil>)` after the err!=nil guard); the finding''s line pointer
+    (291) is off but the claim about the code is true. Not the locking defect.'
+  recorded_at: '2026-08-26T17:54:52Z'
+  adjudicated_by: model
+- finding_key: sha256:8a21cec7d19e4822ae48770c111b44b0ddacbbe4b60f3a78636d8607de1f68e0
+  true_defect: false
+  case_defect: false
+  reason: 'Same as F003: port_forwarder.go:247 dereferences tunnelPort.AccessControl.Entries
+    unconditionally before the goroutine starts and tunnelPort is never reassigned,
+    so line 291 cannot be reached with a nil AccessControl; the ''crash in the recovery
+    fallback'' mechanism is unreachable.'
+  recorded_at: '2026-08-26T17:54:52Z'
+  adjudicated_by: model
+- finding_key: sha256:21467819f0d2b6232e099e40cbcc41178809f464cbc88fef6ca964d9b250ea2d
+  true_defect: false
+  case_defect: false
+  reason: rebuild.go:59-68 relies on rpc.CreateInvoker, whose goroutine runs fwd.ForwardPortToListener
+    with `defer fwd.CloseSSHConnection()` (port_forwarder.go:70); `defer safeClose(invoker,
+    &err)` -> invoker.Close() -> cancelPF cancels that context, so the tunnel client
+    is closed. The asserted 'never closes the underlying tunnel connection' is wrong.
+  recorded_at: '2026-08-26T17:54:52Z'
+  adjudicated_by: model

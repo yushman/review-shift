@@ -19,3 +19,39 @@ verdicts:
     does not decide case_defect.
   recorded_at: '2026-08-20T07:55:05Z'
   adjudicated_by: model
+- finding_key: sha256:83fca580d75e542e3eb4ddb41bea97a33774be231589888e7b8099eeb5be6f03
+  true_defect: true
+  case_defect: true
+  reason: 'pkg/cmd/release/create/http.go:296 is `slices.Contains(strings.Split(scopes,
+    ","), "workflow")` with no TrimSpace, while the sibling parser pkg/cmd/auth/shared/oauth_scopes.go
+    trims; GitHub returns ''repo, workflow'' so the check misses. This is exactly
+    the known defect (fix: trim spaces when parsing X-Oauth-Scopes).'
+  recorded_at: '2026-08-26T17:54:52Z'
+  adjudicated_by: model
+- finding_key: sha256:c0892b079cd063a4b45c146155d9b45e2c2e7ec51f3da3a7262b6506cb748345
+  true_defect: true
+  case_defect: true
+  reason: http.go:296 splits X-Oauth-Scopes on ',' without TrimSpace, so every scope
+    after the first keeps its leading space and never equals "workflow" (compare pkg/cmd/auth/shared/oauth_scopes.go,
+    which trims). Exactly the defect the later fix corrects.
+  recorded_at: '2026-08-26T17:54:52Z'
+  adjudicated_by: model
+- finding_key: sha256:4fd2babb1277f03683625ee01a9c25643e3e0e7410a44fe0fc0f12ff88e44a89
+  true_defect: true
+  case_defect: false
+  reason: The commit's stat shows only http.go changed, and `git grep X-Oauth-Scopes`
+    over pkg/cmd/release at that sha returns no test hits at all, so the rewritten
+    tokenHasWorkflowScope (http.go:286-297) has no multi-scope coverage. Correct,
+    but it reports the missing test rather than the untrimmed-split defect.
+  recorded_at: '2026-08-26T19:24:35Z'
+  adjudicated_by: model
+- finding_key: sha256:63f9f39acd5e5f639b03ddb866d6c617d834fb633a2eda0bfadd261b0dec84a7
+  true_defect: true
+  case_defect: true
+  reason: http.go:296 is `slices.Contains(strings.Split(scopes, ","), "workflow")`
+    with no TrimSpace, and the parent's loop at 294-295 compared `s == "workflow"`
+    equally untrimmed; GitHub emits X-Oauth-Scopes as ', '-separated, so any non-first
+    workflow scope fails the check feeding `!tokenHasWorkflowScope(resp)` at line
+    193. Exactly the known defect.
+  recorded_at: '2026-08-26T19:24:35Z'
+  adjudicated_by: model

@@ -40,3 +40,93 @@ verdicts:
     does not affect subject matter.'
   recorded_at: '2026-08-20T08:08:58Z'
   adjudicated_by: model
+- finding_key: sha256:04fc5aa0b96978c21040c98cb12f4e258080a3575a9cd89d1d07b18834574e16
+  true_defect: true
+  case_defect: true
+  reason: 'LaunchViewModel.kt:92-94 is the new `else -> throw IllegalArgumentException`
+    on the new-user launch path. Contrary to the finding''s own hedge it is reachable:
+    LinearOnboardingOrchestrator.startPlan is a no-op while a run is in progress,
+    so a relaunch while the run sits on the BrowserActivity-hosted duckAiDemoStep
+    (NewUserOnboardingPlanProvider.kt:600) yields host != OnboardingActivity and crashes
+    - the same defect the fix (#9213, ''resuming into a browser-hosted step'') addresses.'
+  recorded_at: '2026-08-26T17:54:52Z'
+  adjudicated_by: model
+- finding_key: sha256:8d87c240ed2c3cd14d215cf7c13dd5ba7a5ce8e50c6afa5d9a67ffae00f35123
+  true_defect: true
+  case_defect: true
+  reason: Same else->throw at LaunchViewModel.kt:92-94. Reachable because startPlan
+    does nothing while a run is in progress, so on relaunch currentStep can be the
+    BrowserActivity-hosted duckAiDemoStep; matches the known crash-on-resume defect.
+  recorded_at: '2026-08-26T17:54:52Z'
+  adjudicated_by: model
+- finding_key: sha256:101df023ccba6cd0e8a9bc5d75101b76cd16afd6ed226840065c37f6ba53d9b9
+  true_defect: true
+  case_defect: true
+  reason: LaunchViewModel.kt:93 - the new throw on any non-OnboardingActivity host,
+    on showOnboardingOrHome()'s new-user path. Reachable via relaunch while the orchestrator
+    run is parked on the BrowserActivity-hosted step (startPlan is a no-op while in
+    progress), which is the known crash.
+  recorded_at: '2026-08-26T17:54:52Z'
+  adjudicated_by: model
+- finding_key: sha256:6b29ec9ce64752ce6aab58de2a33f665f3c2694fff1ce2f94ae0f95f93e39bfe
+  true_defect: true
+  case_defect: true
+  reason: 'Its primary claim - LaunchViewModel.kt:94''s throw crashes the new-user
+    launch coroutine with no try/catch - is correct and reachable (orchestrator.startPlan
+    no-ops while a run is in progress, so currentStep can be the BrowserActivity-hosted
+    duckAiDemoStep). Same defect as the #9213 fix.'
+  recorded_at: '2026-08-26T17:54:52Z'
+  adjudicated_by: model
+- finding_key: sha256:242b6c9ab98a16940728645611c5c1e8c069d0a910d1680f005558a7933264d2
+  true_defect: true
+  case_defect: false
+  reason: LaunchViewModel.kt:85 calls brandDesignUpdateToggles.brandDesignUpdate().isEnabled()
+    directly on the viewModelScope (Main) coroutine, whereas the code it replaced
+    wrapped the equivalent toggle read in `withContext(dispatcherProvider.io())` (NewUserOnboardingPlanBootstrapper.kt
+    at the parent commit), and siblings like CtaViewModel.isBrandDesignUpdateEnabled
+    and OnboardingViewModel.initializePages still do. The premise is factually right;
+    unrelated to the throw defect.
+  recorded_at: '2026-08-26T17:54:52Z'
+  adjudicated_by: model
+- finding_key: sha256:1b3f64e293198c2d15bb5b87c7f997bf50d94ddd54af670535ad904a467ccd3b
+  true_defect: false
+  case_defect: false
+  reason: NewUserOnboardingPlanBootstrapper.kt:60's requireNotNull can only fire if
+    startPlan lands on a non-InProgress state, but buildRootPlan always begins with
+    introAnimationStep(), which has no precondition, so a run always has an eligible
+    first step; the finding itself concedes it needs a misconfigured plan. Path not
+    reachable in this commit.
+  recorded_at: '2026-08-26T17:54:52Z'
+  adjudicated_by: model
+- finding_key: sha256:74fed9e8e2a30618c440ad5257d6eee873631a1c17ffb36b3b25ce6ff2947d94
+  true_defect: true
+  case_defect: false
+  reason: LaunchViewModelTest.kt at that sha uses stepHostedIn() only twice (lines
+    72 and 154), both with LinearOnboardingHost.OnboardingActivity, so the new `else
+    -> throw` in LaunchViewModel.kt:92-95 has no test. Correct test-gap claim, but
+    the finding reports missing coverage rather than the defect itself.
+  recorded_at: '2026-08-26T19:24:35Z'
+  adjudicated_by: model
+- finding_key: sha256:32b9419582fd4aeab66523a31fcbddbcf918bf34b9b16cbc324828c4ea7b64a5
+  true_defect: true
+  case_defect: false
+  reason: LaunchViewModel.kt:85 calls brandDesignUpdate().isEnabled() directly inside
+    a viewModelScope (Main) coroutine; the generated @ContributesRemoteFeature store
+    reads SharedPreferences and json-decodes on every get (see the KSP golden RemoteFeature_Basic.kt),
+    and OnboardingViewModel:60/137 and the removed bootstrapper wrapper all dispatch
+    to io(). Minor supporting-detail slips (lines 84/111 use launch(io) not withContext;
+    isOnboardingImprovementsV2Enabled reads a different toggle method) do not affect
+    the claim. Unrelated to the else->throw defect.
+  recorded_at: '2026-08-26T19:24:35Z'
+  adjudicated_by: model
+- finding_key: sha256:d8423de2b02608f7d50491dbd80ba0eaff52a04351c38f751bdc17a5547e6afa
+  true_defect: true
+  case_defect: true
+  reason: LaunchOrchestrator's contract (LinearOnboardingOrchestrator.kt:46-48) says
+    startPlan 'does nothing while a run is already in progress', so LaunchViewModel.kt:86-87
+    sees whatever step is current; NewUserOnboardingPlanProvider.kt:198 puts a BrowserActivity-hosted
+    duckAiDemoStep in the root plan and BrandDesignUpdatePageViewModel.kt:448 handles
+    that host. Relaunch while parked there hits the `else -> throw` at line 92-95.
+    Exactly the known defect.
+  recorded_at: '2026-08-26T19:24:35Z'
+  adjudicated_by: model
