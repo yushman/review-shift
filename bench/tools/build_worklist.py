@@ -1,25 +1,49 @@
-"""Build a depth-blinded, shuffled worklist for an independent judge (ADR-015 D2 / Day 22)."""
+"""Build a depth-blinded, shuffled worklist for an independent judge (ADR-015 D2 / Day 22).
+
+Pass `--anchors` to mix in every finding an earlier judge already ruled on (Day 24's method):
+judge disagreement is this project's least stable axis, so a new judge's verdicts are only
+comparable with the stored ones if the drift between them is measured rather than assumed. The
+anchors are indistinguishable from the new items in the worklist; only the new verdicts are
+recorded, and the anchor answers are scored against the stored ones.
+"""
 import json
 import random
 import sys
 from pathlib import Path
 
 import bench.runner as runner
-from bench.adjudicate import outstanding_items
-from bench.case import load_cases
-from bench.verdict import load_verdict_index
+from bench.adjudicate import Item, outstanding_items
+from bench.case import is_confirmed, load_cases
+from bench.verdict import finding_key, load_verdict_index
 
-out = Path(sys.argv[1])
-cases = load_cases()
+anchors_wanted = "--anchors" in sys.argv[1:]
+out = Path([a for a in sys.argv[1:] if not a.startswith("--")][0])
+# Confirmed cases only, for the same reason `bench.cli score` filters: a verdict on an
+# unconfirmed case is a label written after seeing the output (ADR-015 label independence).
+cases = [c for c in load_cases() if is_confirmed(c)]
 results = runner.load_stored_results(cases)
-items = outstanding_items(results, load_verdict_index())
+verdicts = load_verdict_index()
+items = outstanding_items(results, verdicts)
+new_keys = {(it.case.id, it.key) for it in items}
+if anchors_wanted:
+    for result in results:
+        for finding in result.findings or []:
+            if verdicts.resolve(result.case.id, finding) is None:
+                continue
+            items.append(Item(
+                case=result.case, depth=result.depth, finding=finding,
+                key=finding_key(finding),
+            ))
 
 random.Random(20260826).shuffle(items)   # fixed seed: reproducible, still order-blind
 
 work, keymap = [], {}
 for i, it in enumerate(items, 1):
     ident = f"F{i:03d}"
-    keymap[ident] = {"key": it.key, "case_id": it.case.id, "depth": it.depth}
+    keymap[ident] = {
+        "key": it.key, "case_id": it.case.id, "depth": it.depth,
+        "anchor": (it.case.id, it.key) not in new_keys,
+    }
     f = it.finding
     work.append({
         "id": ident,
@@ -38,7 +62,8 @@ for i, it in enumerate(items, 1):
 
 out.write_text(json.dumps(work, indent=2, ensure_ascii=False))
 (out.parent / "keymap.json").write_text(json.dumps(keymap, indent=2))
-print(f"{len(work)} findings -> {out}")
+anchors = sum(1 for v in keymap.values() if v["anchor"])
+print(f"{len(work)} findings -> {out} ({len(work) - anchors} new, {anchors} anchors)")
 print("repos:", sorted({w['repo'] for w in work}))
 
 # Kept in-tree because the blinding is the method, not a one-off: ADR-015 D2 only tolerates a

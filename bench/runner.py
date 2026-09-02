@@ -59,6 +59,19 @@ def run_case(
     stdout_lines = [line for line in proc.stdout.strip().splitlines() if line]
     run_dir = Path(stdout_lines[-1]) if stdout_lines else None
     if run_dir is None or not (run_dir / "run.json").exists():
+        # ADR-018's diff-size gate exits 0 having reviewed nothing, so it reaches us looking
+        # exactly like a broken run. It is the opposite: the case is out of the tool's declared
+        # scope at every depth, and scoring it as a failure would charge the depth for a case
+        # it was never allowed to attempt. Reported so it lands under "not completed" with the
+        # measured size rather than with a generic message.
+        gated = next(
+            (ln for ln in proc.stderr.splitlines() if "diff_too_large" in ln), None
+        )
+        if gated is not None:
+            return CaseRunResult(
+                case=case, depth=depth, findings=None, cost_usd=0.0,
+                status="diff_too_large", reason=gated.strip(),
+            )
         return CaseRunResult(
             case=case, depth=depth, findings=None, cost_usd=0.0, status="review_failed",
             reason="review-shift did not print a run directory with run.json",
