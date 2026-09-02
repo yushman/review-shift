@@ -129,3 +129,50 @@ verdicts:
     itself.
   recorded_at: '2026-08-26T19:24:35Z'
   adjudicated_by: model
+- finding_key: sha256:402bdbd5ea21844e9f4d587ae2a2fe1f9ec62e9fead0ef04d9a6feba629d72d2
+  true_defect: true
+  case_defect: true
+  reason: Names hash(type(self.mode)) at Examples.__hash__ (json_schema.py:2142) and
+    prescribes hashing self.mode -- exactly the change made by the upstream fix 220cd3d2.
+  recorded_at: '2026-09-02T11:58:45Z'
+  adjudicated_by: model
+- finding_key: sha256:1a1bb4924ebdcb620a495990085ff12459a293b256a765eaa6ccca57fb8428b9
+  true_defect: false
+  case_defect: false
+  reason: Correct observation that test_hashable_types (tests/test_json_schema.py:4441-4471)
+    only asserts model_json_schema() output and never calls hash(), but a missing
+    assertion is a coverage gap, not code that behaves wrongly under any input.
+  recorded_at: '2026-09-02T11:58:45Z'
+  adjudicated_by: model
+- finding_key: sha256:e0ff61d753237325563d80a20c0f43f6cb6c7a16067a34b2a8488bfebb1e79d3
+  true_defect: true
+  case_defect: true
+  reason: 'Precisely describes the defect at json_schema.py:2112: type(self.mode)
+    is only ever str or NoneType, ''validation'' and ''serialization'' become hash-indistinguishable,
+    and the manual __hash__ exists only because slots_dataclass eq=True would set
+    __hash__=None. Matches the upstream fix.'
+  recorded_at: '2026-09-02T11:58:45Z'
+  adjudicated_by: model
+- finding_key: sha256:719ad5dd7aa48ff7445065f59c562fca24b409afd61041066c8cd57a50df54b0
+  true_defect: true
+  case_defect: true
+  reason: Identifies hash(type(self.mode)) at json_schema.py:2112 and correctly notes
+    json_schema is a dict and cannot be hashed, so hashing mode's value is the intended
+    behavior -- the exact change in upstream commit 220cd3d2.
+  recorded_at: '2026-09-02T11:58:45Z'
+  adjudicated_by: model
+- finding_key: sha256:5cf325d95293ac4c36cee327de652e6e26cc9a6f8a832d68e1f637088e73e5fa
+  true_defect: true
+  case_defect: true
+  reason: 'Same mechanism at Examples.__hash__ (json_schema.py:2142): hashes type(self.mode)
+    rather than self.mode, one of the two ground-truth locations.'
+  recorded_at: '2026-09-02T11:58:45Z'
+  adjudicated_by: model
+- finding_key: sha256:38ea86ed627aea2f448eca88ade4f86dc22c973f676c519c2a6dad06883f4c6a
+  true_defect: false
+  case_defect: false
+  reason: Accurately observes that test_hashable_types would pass with either hash
+    implementation, but this is a test-coverage gap in tests/test_json_schema.py,
+    not a defect in code under review.
+  recorded_at: '2026-09-02T11:58:45Z'
+  adjudicated_by: model

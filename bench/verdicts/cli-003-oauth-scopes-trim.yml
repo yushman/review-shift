@@ -55,3 +55,20 @@ verdicts:
     193. Exactly the known defect.
   recorded_at: '2026-08-26T19:24:35Z'
   adjudicated_by: model
+- finding_key: sha256:24f9334190c4e0ac9ff77dc2d6b211e2bd1ef487cd7fcb2187f8e9de95ecaa3b
+  true_defect: true
+  case_defect: true
+  reason: 'http.go:296 at a4f96d29: slices.Contains(strings.Split(scopes, ","), "workflow")
+    on an X-Oauth-Scopes header GitHub formats as ", "-separated, so every element
+    but the first keeps a leading space and never matches. Exactly the ground-truth
+    defect fixed by trimming.'
+  recorded_at: '2026-09-02T11:58:45Z'
+  adjudicated_by: model
+- finding_key: sha256:dd1eea795f8016724067afb950dade9e958c562c8bb3a5735a360abbf90b1390
+  true_defect: true
+  case_defect: true
+  reason: 'Same defect at http.go:296, correctly worked through: header ''repo, workflow''
+    splits to ["repo"," workflow"], tokenHasWorkflowScope returns false, and createRelease
+    then prints the bogus ''workflow scope may be required'' message on a 404.'
+  recorded_at: '2026-09-02T11:58:45Z'
+  adjudicated_by: model
