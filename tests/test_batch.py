@@ -434,7 +434,7 @@ def test_env_var_auth_preflight_budget_reaches_the_preflight_command(
 def test_preflight_own_budget_exhaustion_exits_4_as_auth_failed(
     three_branch_repo: Path, tmp_path: Path
 ):
-    """The trivial preflight call running out of its own $0.01 budget is an environment/cost
+    """The trivial preflight call running out of its own budget is an environment/cost
     problem, not evidence of bad credentials or account quota exhaustion -- but it still stops
     the batch before any branch runs, same as a genuine auth failure."""
     out_dir = tmp_path / "runs"
@@ -861,3 +861,129 @@ def test_dry_run_base_resolution_failure_fails_like_a_real_run(
     argv = ["run", "--branch", "feature/a", "--base", "no-such-base",
             "--repo", str(three_branch_repo), "--out-dir", str(out_dir), "--dry-run"]
     assert cli.main(argv) == 2
+
+
+# --- ADR-018's diff-size gate on the explicit `--branch` path ------------------------------
+# The gate lived only in `discover.discover`, so `run --branch X` walked straight past it.
+# Found on the 2026-08-26 corpus run: bench cases are driven by `--branch`, and a 2 668-line
+# case failed with empty stdout on all three attempts instead of being skipped as too large.
+
+
+@pytest.fixture
+def oversize_branch_repo(tmp_path: Path) -> Path:
+    """main + `feature/huge` (well over `MAX_DIFF_LINES`) + `feature/small` (well under)."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    _git(repo, "config", "user.email", "test@example.com")
+    _git(repo, "config", "user.name", "test")
+    (repo / "f.txt").write_text("base\n")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", "initial")
+    _git(repo, "branch", "-m", "main")
+
+    _git(repo, "checkout", "-q", "-b", "feature/huge", "main")
+    (repo / "big.txt").write_text("".join(f"line {i}\n" for i in range(2500)))
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", "huge change")
+
+    _git(repo, "checkout", "-q", "-b", "feature/small", "main")
+    (repo / "f.txt").write_text("small\n")
+    _git(repo, "commit", "-q", "-am", "small change")
+
+    _git(repo, "checkout", "-q", "main")
+    config_dir = repo / ".review-shift"
+    config_dir.mkdir()
+    (config_dir / "config.yml").write_text(
+        "version: 1\ndiscovery:\n  patterns: [\"feature/*\"]\n"
+    )
+    return repo
+
+
+def _batch_summary(out_dir: Path) -> dict:
+    batch_files = list(out_dir.glob("*-batch.json"))
+    assert len(batch_files) == 1
+    return json.loads(batch_files[0].read_text())
+
+
+def test_explicit_branch_over_the_size_gate_is_skipped_before_any_spend(
+    oversize_branch_repo: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+):
+    out_dir = tmp_path / "runs"
+    argv = ["run", "--branch", "feature/huge", "--base", "main",
+            "--repo", str(oversize_branch_repo), "--out-dir", str(out_dir)]
+    with mock_patch("review_shift.review.check_auth") as auth, mock_patch(
+        "review_shift.review._invoke_with_timeout"
+    ) as invoke:
+        assert cli.main(argv) == 0
+
+    # Neither the preflight nor the review costs anything: the gate is ahead of both.
+    assert not auth.called
+    assert not invoke.called
+
+    summary = _batch_summary(out_dir)
+    assert summary["branches"] == []
+    assert summary["discovery_skipped"] == [
+        {"branch": "feature/huge", "reason": "diff_too_large", "changed_lines": 2500}
+    ]
+    assert "diff_too_large" in capsys.readouterr().err
+
+
+def test_explicit_branch_under_the_size_gate_is_still_reviewed(
+    oversize_branch_repo: Path, tmp_path: Path
+):
+    out_dir = tmp_path / "runs"
+    argv = ["run", "--branch", "feature/small", "--base", "main",
+            "--repo", str(oversize_branch_repo), "--out-dir", str(out_dir)]
+    with mock_patch(
+        "review_shift.review._invoke_with_timeout",
+        return_value=(_low_finding_events(), False),
+    ):
+        assert cli.main(argv) == 0
+
+    summary = _batch_summary(out_dir)
+    assert [b["status"] for b in summary["branches"]] == ["ok"]
+    assert summary["discovery_skipped"] == []
+
+
+def test_size_gate_skips_one_branch_and_the_batch_reviews_the_rest(
+    oversize_branch_repo: Path, tmp_path: Path
+):
+    """The gate must not turn one oversize branch into a dead batch — the same isolation rule
+    as a branch that fails (batch-execution "One branch failing does not stop the batch")."""
+    out_dir = tmp_path / "runs"
+    argv = ["run", "--base", "main", "--repo", str(oversize_branch_repo),
+            "--out-dir", str(out_dir)]
+    with mock_patch(
+        "review_shift.review._invoke_with_timeout",
+        return_value=(_low_finding_events(), False),
+    ):
+        assert cli.main(argv) == 0
+
+    summary = _batch_summary(out_dir)
+    assert {b["branch"]: b["status"] for b in summary["branches"]} == {"feature/small": "ok"}
+    assert [s["branch"] for s in summary["discovery_skipped"]] == ["feature/huge"]
+
+
+def test_dry_run_of_an_oversize_explicit_branch_previews_the_skip_not_a_review(
+    oversize_branch_repo: Path, tmp_path: Path
+):
+    out_dir = tmp_path / "runs"
+    argv = ["run", "--branch", "feature/huge", "--base", "main",
+            "--repo", str(oversize_branch_repo), "--out-dir", str(out_dir), "--dry-run"]
+    assert cli.main(argv) == 0
+
+    summary = _batch_summary(out_dir)
+    assert summary["branches"] == []
+    assert summary["discovery_skipped"][0]["reason"] == "diff_too_large"
+
+
+def test_force_does_not_bypass_the_size_gate(oversize_branch_repo: Path, tmp_path: Path):
+    """`--force` re-reviews a cached branch; it is not an override of ADR-018's cut-off."""
+    out_dir = tmp_path / "runs"
+    argv = ["run", "--branch", "feature/huge", "--base", "main",
+            "--repo", str(oversize_branch_repo), "--out-dir", str(out_dir), "--force"]
+    with mock_patch("review_shift.review._invoke_with_timeout") as invoke:
+        assert cli.main(argv) == 0
+    assert not invoke.called
+    assert _batch_summary(out_dir)["discovery_skipped"][0]["reason"] == "diff_too_large"

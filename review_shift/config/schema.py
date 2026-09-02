@@ -129,7 +129,13 @@ DEFAULTS: dict[str, Any] = {
         "hard_timeout_minutes": 45,
         "budget_usd": 10.00,
         "total_budget_usd": 50.00,
-        "auth_preflight_budget_usd": 0.01,
+        # Measured, not guessed: a preflight `claude -p ok` costs ~$0.06 on an ordinary
+        # install, because its 36k tokens of Claude Code system prompt, tool definitions
+        # and plugins are charged whatever the probe asks for -- 2 input and 28 output
+        # tokens against 22463 cache-read and 14215 cache-creation. $0.01 could not cover
+        # that on any machine with plugins, which is most of them, and 24 bench runs died
+        # on it in one night. Still a fuse: a review costs $0.3-2.
+        "auth_preflight_budget_usd": 0.10,
         "model": "sonnet",
         "exit_zero_on_findings": False,
     },

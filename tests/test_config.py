@@ -46,9 +46,14 @@ def test_missing_config_file_uses_all_defaults(tmp_path: Path):
     assert loaded.data["discovery"]["discover_all"] is False
 
 
-def test_auth_preflight_budget_defaults_to_one_cent(tmp_path: Path):
+def test_auth_preflight_budget_default_covers_an_ordinary_install(tmp_path: Path):
     loaded = config.load_config(tmp_path)
-    assert loaded.data["runtime"]["auth_preflight_budget_usd"] == 0.01
+    # Measured, not chosen: a preflight `claude -p ok` costs ~$0.0616 on an ordinary install
+    # (2 input + 28 output tokens against 22463 cache-read and 14215 cache-creation -- the cost
+    # is Claude Code's own system prompt, tools and plugins, which no flag makes cheaper). The
+    # old $0.01 could not cover that anywhere plugins are installed and killed 24 bench runs in
+    # one night. Still a fuse: a branch review is $0.3-2.
+    assert loaded.data["runtime"]["auth_preflight_budget_usd"] == 0.10
 
 
 def test_auth_preflight_budget_env_override(tmp_path: Path):

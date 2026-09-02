@@ -25,6 +25,14 @@ class DiscoverError(RuntimeError):
     pass
 
 
+# ADR-018's v0.1 cut-off, in changed lines (added + deleted), as a single definition. It is
+# read on three paths now — branch discovery, trunk discovery, and the explicit `--branch`
+# gate in batch.py — and the third exists because the promise ("a diff above the threshold is
+# skipped loudly") was only ever enforced by the first two: naming a branch by hand walked
+# straight past it, which is the silent-bug shape CLAUDE.md warns about.
+MAX_DIFF_LINES = 2000
+
+
 def _run(repo_root: Path, args: list[str]) -> str:
     proc = subprocess.run(
         ["git", "-C", str(repo_root), *args],
@@ -106,7 +114,7 @@ def _has_merge_base(repo_root: Path, base: str, branch: str) -> bool:
     return proc.returncode == 0
 
 
-def _changed_lines(repo_root: Path, base: str, branch: str) -> int:
+def merge_base_changed_lines(repo_root: Path, base: str, branch: str) -> int:
     """Changed-line count for the diff-size gate. `--ignore-submodules=all` keeps gitlink
     changes out entirely (ADR-012); a binary file reports `-\t-` in numstat, which counts as
     zero rather than crashing int()."""
@@ -144,7 +152,7 @@ def discover(
     discover_all: bool = False,
     max_age_hours: float = 24,
     max_branches_per_run: int = 10,
-    max_diff_lines: int = 2000,
+    max_diff_lines: int = MAX_DIFF_LINES,
     now: datetime | None = None,
 ) -> DiscoveryResult:
     now = now or datetime.now(UTC)
@@ -174,7 +182,7 @@ def discover(
         if not _has_merge_base(repo_root, base, name):
             skipped.append({"branch": name, "reason": "no_merge_base", "base": base})
             continue
-        changed = _changed_lines(repo_root, base, name)
+        changed = merge_base_changed_lines(repo_root, base, name)
         if changed > max_diff_lines:
             skipped.append(
                 {"branch": name, "reason": "diff_too_large", "changed_lines": changed}
@@ -226,9 +234,9 @@ class TrunkDiscoveryResult:
 
 
 def _changed_lines_for_commit(repo_root: Path, sha: str) -> int:
-    """Same counting rule as `_changed_lines`, against the commit's own parent instead of a
-    branch's merge-base (`--ignore-submodules=all` keeps gitlink bumps out; a binary file's
-    `-\t-` counts as zero rather than crashing int())."""
+    """Same counting rule as `merge_base_changed_lines`, against the commit's own parent
+    instead of a branch's merge-base (`--ignore-submodules=all` keeps gitlink bumps out; a
+    binary file's `-\t-` counts as zero rather than crashing int())."""
     out = _run(
         repo_root,
         ["show", "--numstat", "--format=", "-M", "--ignore-submodules=all", sha],
@@ -250,7 +258,7 @@ def discover_trunk(
     watermark: str | None,
     *,
     max_commits_per_run: int = 10,
-    max_diff_lines: int = 2000,
+    max_diff_lines: int = MAX_DIFF_LINES,
 ) -> TrunkDiscoveryResult:
     """Selects the trunk review units for one run (trunk-review spec). The anchor is the
     persisted watermark, validated with `is_ancestor` before use; an absent or invalidated

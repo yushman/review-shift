@@ -69,7 +69,7 @@ that file is the reference. A few fields worth knowing about before you first tu
 | `discovery.max_age_hours` | `24` | a branch is eligible only if its last commit is within this window |
 | `runtime.budget_usd` | `10.00` | spend cap for one branch's review |
 | `runtime.total_budget_usd` | `50.00` | spend cap for the whole run; once hit, remaining branches are marked `skipped: budget_exhausted`, not treated as a failure |
-| `runtime.auth_preflight_budget_usd` | `0.01` | budget for the cheap health check `run`/`doctor` do before touching any branch; raise this if it fails with "exhausted its own budget" on a machine with a large cached system prompt (many MCP servers/plugins inflate even the very first call) |
+| `runtime.auth_preflight_budget_usd` | `0.10` | budget for the cheap health check `run`/`doctor` do before touching any branch; raise this if it fails with "exhausted its own budget" on a machine with a large cached system prompt (many MCP servers/plugins inflate even the very first call) |
 | `patch.auto_fix_min_severity` | `high` | minimum severity that lands in `auto_fixed.patch` instead of only `all.patch` |
 | `trunk.enabled` | `false` | reviews commits landed directly on the base branch instead of discovering branches — see Trunk review below |
 | `trunk.max_commits_per_run` | `10` | cap on commits reviewed by one trunk run; the rest is picked up the next night |
@@ -289,7 +289,8 @@ problems does not look like a broken job.
   benchmark bench exists (v0.2). What v0.1 measures is patch applicability.
 - **Run artifacts contain code fragments** and live in your working tree.
 - **v0.1 scope:** local branches only, one repository per run. Diffs above ~2 000 changed
-  lines are skipped with an explicit reason rather than truncated. Chunking and retention are
+  lines are skipped with an explicit reason rather than truncated — including when you name the
+  branch yourself with `--branch`, and `--force` does not override it. Chunking and retention are
   v0.2; remote branches and PR integration are v0.3. Trunk review (`--trunk`) reviews per
   commit — a defect spread across several small, individually innocent-looking commits (`wip`
   → `fix` → `actually fix`) can still slip through; see ADR-025.

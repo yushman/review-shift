@@ -153,7 +153,7 @@ def _run_preflight(cmd: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, capture_output=True, text=True, check=False)
 
 
-def check_auth(model: str = "sonnet", budget_usd: float = 0.01) -> None:
+def check_auth(model: str = "sonnet", budget_usd: float = 0.10) -> None:
     """A single, cheap `claude -p` call before the batch starts (ADR-014's risk R2 response):
     failure must be visible before any branch runs, not discovered mid-batch.
 
@@ -165,6 +165,12 @@ def check_auth(model: str = "sonnet", budget_usd: float = 0.01) -> None:
         "claude", "-p", "ok",
         "--output-format", "json",
         "--model", model,
+        # Bounds the probe's *output*, which matters on a model whose thinking is on by
+        # default. It is deliberately not the fix for the budget: measuring the call showed
+        # 2 input and 28 output tokens against 22463 cache-read and 14215 cache-creation --
+        # the cost is the Claude Code system prompt, tool definitions, plugins and MCP servers,
+        # none of which an effort flag touches. See the default above.
+        "--effort", "low",
         "--max-budget-usd", str(budget_usd),
         "--permission-mode", "plan",
         "--no-session-persistence",
@@ -181,7 +187,10 @@ def check_auth(model: str = "sonnet", budget_usd: float = 0.01) -> None:
 
     subtype = str(result.get("subtype", ""))
     if subtype.startswith("error_max_") or "budget" in subtype:
-        raise AuthPreflightError("claude -p preflight exhausted its own budget before completing")
+        raise AuthPreflightError(
+            "claude -p preflight exhausted its own budget before completing -- raise "
+            "runtime.auth_preflight_budget_usd (this is the check's own cost, not your quota)"
+        )
     if "quota" in subtype or "rate_limit" in subtype:
         raise QuotaError("claude -p preflight reported quota/rate-limit exhaustion")
     raise AuthError("claude -p preflight failed authentication check")
@@ -380,16 +389,31 @@ def run_review(
         )
         cmd = build_command(prompt, depth, repo_root, session_id, model, budget_override)
 
-        if hard_deadline is not None:
-            hard_remaining = max(0.0, hard_deadline - time.monotonic())
-            soft_remaining = max(0.0, (soft_deadline or hard_deadline) - time.monotonic())
-            try:
-                events, attempt_partial = _invoke_with_timeout(cmd, soft_remaining, hard_remaining)
-            except ReviewTimeout:
-                raise ReviewTimeout(attempts=attempt) from None
-            partial = partial or attempt_partial
-        else:
-            events = _invoke(cmd)
+        # A transcript that does not parse at all -- non-JSON stdout, empty stdout, no terminal
+        # `result` event -- is the *first* case the retry requirement names, and it used to be
+        # the one case that bypassed it: `_parse_events` raises `ReviewInvalid` from inside the
+        # invocation, which escaped this loop and ended the review at attempt 1. Two identical
+        # bench failures on the same case (2026-08-26) were this. Caught here so it takes the
+        # same path as a schema failure; the raise stays where it is, because that is the
+        # function that knows the transcript is unusable and already carries the raw text.
+        try:
+            if hard_deadline is not None:
+                hard_remaining = max(0.0, hard_deadline - time.monotonic())
+                soft_remaining = max(0.0, (soft_deadline or hard_deadline) - time.monotonic())
+                try:
+                    events, attempt_partial = _invoke_with_timeout(
+                        cmd, soft_remaining, hard_remaining
+                    )
+                except ReviewTimeout:
+                    raise ReviewTimeout(attempts=attempt) from None
+                partial = partial or attempt_partial
+            else:
+                events = _invoke(cmd)
+        except ReviewInvalid as exc:
+            raw_responses.extend(exc.raw_responses)
+            last_error = exc.last_error
+            extra_error = last_error
+            continue
         result = events[-1]
         raw_responses.append(json.dumps(result))
         init_event = next((e for e in events if e.get("subtype") == "init"), {})

@@ -172,6 +172,42 @@ def test_run_review_gives_up_after_three_invalid_attempts(tmp_path: Path):
     assert len(exc_info.value.raw_responses) == 3
 
 
+def test_unparseable_transcript_is_retried_then_succeeds(tmp_path: Path):
+    """The defect two bench runs died on (2026-08-26). `_parse_events` raises `ReviewInvalid`
+    from inside the invocation; the loop caught only `jsonschema.ValidationError`, so the very
+    first case the retry requirement names -- invalid JSON -- was the one case that never
+    retried. `cli-002` at `high` failed this way twice, identically, and cost a cell in the
+    paired depth comparison each time."""
+    good = [{"type": "system"}, _result_event(structured_output=VALID_PAYLOAD)]
+    broken = subprocess.CompletedProcess(args=["claude"], returncode=0, stdout="", stderr="")
+    with patch(
+        "review_shift.review.subprocess.run", side_effect=[broken, _completed(good)]
+    ) as mock_run:
+        result = review.run_review(
+            branch="feature/x", base="main", depth="high", repo_root=tmp_path,
+            diff_text="some diff", head_sha="abc123", repo_files={"src/foo.py"},
+        )
+    assert mock_run.call_count == 2
+    assert result.attempts == 2
+    assert len(result.findings) == 1
+
+
+def test_unparseable_transcript_still_gives_up_after_three(tmp_path: Path):
+    """Retrying must not become never failing: the attempt cap is unchanged, and every raw
+    response is kept so `raw/attempt-{1,2,3}.txt` is written for a transcript failure exactly
+    as it is for a schema failure."""
+    broken = subprocess.CompletedProcess(args=["claude"], returncode=0, stdout="", stderr="")
+    with patch("review_shift.review.subprocess.run", return_value=broken) as mock_run:
+        with pytest.raises(review.ReviewInvalid) as exc_info:
+            review.run_review(
+                branch="feature/x", base="main", depth="high", repo_root=tmp_path,
+                diff_text="some diff", head_sha="abc123", repo_files={"src/foo.py"},
+            )
+    assert mock_run.call_count == 3
+    assert exc_info.value.attempts == 3
+    assert len(exc_info.value.raw_responses) == 3
+
+
 def test_prompt_template_hash_is_stable(tmp_path: Path):
     assert review.prompt_template_hash("medium") == review.prompt_template_hash("medium")
 
@@ -359,6 +395,37 @@ def test_check_auth_passes_configured_budget_to_the_preflight_command():
     cmd = mock_preflight.call_args[0][0]
     assert "--max-budget-usd" in cmd
     assert cmd[cmd.index("--max-budget-usd") + 1] == "0.25"
+
+
+def test_check_auth_is_issued_at_minimum_effort_on_the_runs_own_model():
+    """The `$0.01` default kept blowing even at `sonnet` -- 24 bench runs lost to it in one
+    night -- because a liveness probe was paying for thinking tokens it has no use for. Make
+    the call cheap rather than widening the fuse. The *model* stays the run's own: a cheap
+    fixed model would let the preflight pass while the configured review model is unreachable,
+    pushing that failure back into the batch one branch at a time, which is exactly what
+    ADR-014 wrote the preflight to prevent."""
+    with patch(
+        "review_shift.review._run_preflight", return_value=_preflight_ok()
+    ) as mock_preflight:
+        review.check_auth(model="opus", budget_usd=0.25)
+    cmd = mock_preflight.call_args[0][0]
+    assert cmd[cmd.index("--effort") + 1] == "low"
+    assert cmd[cmd.index("--model") + 1] == "opus"
+
+
+def test_preflight_budget_error_names_the_config_key():
+    """`AuthPreflightError` exists to keep this case apart from auth and quota failures, then
+    used to send the reader to their quota page anyway by saying only "exhausted its own
+    budget"."""
+    budget_error = subprocess.CompletedProcess(
+        args=["claude"], returncode=1, stderr="",
+        stdout=json.dumps([{"type": "result", "is_error": True,
+                            "subtype": "error_max_budget_usd"}]),
+    )
+    with patch("review_shift.review._run_preflight", return_value=budget_error):
+        with pytest.raises(review.AuthPreflightError) as exc_info:
+            review.check_auth()
+    assert "runtime.auth_preflight_budget_usd" in str(exc_info.value)
 
 
 def test_check_auth_succeeds_despite_informational_rate_limit_event():
