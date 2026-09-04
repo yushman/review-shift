@@ -72,3 +72,12 @@ verdicts:
     then prints the bogus ''workflow scope may be required'' message on a 404.'
   recorded_at: '2026-09-02T11:58:45Z'
   adjudicated_by: model
+- finding_key: sha256:635ce2cd89aa826887a5f16b523768e549c5c02c5f627f26682a257e12604bb1
+  true_defect: true
+  case_defect: true
+  reason: http.go:296 is `slices.Contains(strings.Split(scopes, ","), "workflow")`;
+    GitHub's X-Oauth-Scopes header is comma-space separated, so every scope after
+    the first keeps a leading space and never matches, making createRelease emit the
+    bogus 'workflow scope may be required' error. Exactly the known defect.
+  recorded_at: '2026-09-02T15:21:40Z'
+  adjudicated_by: model
