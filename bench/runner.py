@@ -97,6 +97,7 @@ def _matches(case: Case, branch: str) -> bool:
 
 def load_stored_results(
     cases: list[Case], *, runs_dir: Path = RUNS_DIR, work_dir: Path = WORK_DIR,
+    latest_only: bool = True,
 ) -> list[CaseRunResult]:
     """Reconstructs `CaseRunResult`s from runs already on disk, so stored findings can be
     adjudicated and re-scored without paying for a review again.
@@ -105,8 +106,14 @@ def load_stored_results(
     timestamp-prefixed, so directory order is chronological. Older runs are dropped rather
     than double-counted, which would inflate yield with the same finding twice. A run
     directory missing `findings.json` is reported as incomplete rather than skipped silently.
+
+    `latest_only=False` returns every stored run instead. Scoring must never use it -- that is
+    the double-counting above. Building a judge's anchor pool must: with the default, a repeat
+    run's anchors exclude the earlier repeats of the very depth under test, which is precisely
+    the set a repeat design needs cross-judged (devlog Day 26).
     """
     latest: dict[tuple[str, str], tuple[str, CaseRunResult]] = {}
+    every: list[tuple[str, CaseRunResult]] = []
     for run_json in sorted(runs_dir.glob("*/*/run.json")):
         run_dir = run_json.parent
         try:
@@ -132,10 +139,15 @@ def load_stored_results(
                 run_dir=run_dir, repo_dir=clone_dir(case.repo, work_dir),
                 head_sha=meta.get("head_sha"), prompt_hash=meta.get("prompt_hash"),
             )
+        if not latest_only:
+            every.append((run_id, result))
+            continue
         key = (case.id, depth)
         previous = latest.get(key)
         if previous is None or previous[0] <= run_id:
             latest[key] = (run_id, result)
+    if not latest_only:
+        return [result for _, result in sorted(every, key=lambda pair: pair[0])]
     return [result for _, (_, result) in sorted(latest.items())]
 
 

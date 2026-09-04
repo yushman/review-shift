@@ -17,23 +17,44 @@ from bench.case import is_confirmed, load_cases
 from bench.verdict import finding_key, load_verdict_index
 
 anchors_wanted = "--anchors" in sys.argv[1:]
+# Anchors measure drift; they do not need to be the whole archive. Anchoring off every stored
+# run pulled 118 of them, which buries the new findings and makes one judging pass unwieldy.
+# Cap the pool and fill it with the depths under test first -- those are the verdicts a repeat
+# is actually asking a second judge to reproduce.
+anchor_limit = next(
+    (int(a.split("=", 1)[1]) for a in sys.argv[1:] if a.startswith("--anchor-limit=")), 50
+)
 out = Path([a for a in sys.argv[1:] if not a.startswith("--")][0])
 # Confirmed cases only, for the same reason `bench.cli score` filters: a verdict on an
 # unconfirmed case is a label written after seeing the output (ADR-015 label independence).
 cases = [c for c in load_cases() if is_confirmed(c)]
-results = runner.load_stored_results(cases)
+# Every stored run, on both sides. `latest_only=True` keeps one run per (case, depth), so a
+# second repeat hides the first: round four judged only the newer of two `low`/`medium` repeats
+# and left 12 findings unadjudicated with no sign that anything was missing. Scoring still
+# de-duplicates; a judge's worklist must not.
+results = runner.load_stored_results(cases, latest_only=False)
 verdicts = load_verdict_index()
 items = outstanding_items(results, verdicts)
 new_keys = {(it.case.id, it.key) for it in items}
 if anchors_wanted:
+    # Every stored run, not just the newest per (case, depth): anchoring off the newest drops
+    # the earlier repeats of the depth being re-run, which are exactly the findings a repeat
+    # design needs a second judge to rule on (devlog Day 26).
+    depths_under_test = {it.depth for it in items}
+    same, other = [], []
     for result in results:
         for finding in result.findings or []:
             if verdicts.resolve(result.case.id, finding) is None:
                 continue
-            items.append(Item(
+            anchor = Item(
                 case=result.case, depth=result.depth, finding=finding,
                 key=finding_key(finding),
-            ))
+            )
+            (same if result.depth in depths_under_test else other).append(anchor)
+    rng = random.Random(20260826)
+    rng.shuffle(same)
+    rng.shuffle(other)
+    items.extend((same + other)[:anchor_limit])
 
 random.Random(20260826).shuffle(items)   # fixed seed: reproducible, still order-blind
 
