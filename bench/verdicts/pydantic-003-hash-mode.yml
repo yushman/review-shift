@@ -53,3 +53,251 @@ verdicts:
     with the same `hash(self.mode)` patch the fix commit applied.
   recorded_at: '2026-08-20T08:07:07Z'
   adjudicated_by: model
+- finding_key: sha256:ff5287e92360815de678a4ed09bfc5181af4e170b7d9e94c5d0e56db7848903c
+  true_defect: true
+  case_defect: true
+  reason: json_schema.py:2111-2112 is literally `return hash(type(self.mode))`; mode
+    is a str literal or None, so all non-None modes hash to hash(str) and 'validation'/'serialization'
+    collide, while the dataclass __eq__ compares the value. That is exactly the known
+    defect (hash the mode value, not its type).
+  recorded_at: '2026-08-26T17:54:52Z'
+  adjudicated_by: model
+- finding_key: sha256:96725f00f900ed54f01eb7fae938ff01f56f6a09d5da444609a43539b420a467
+  true_defect: true
+  case_defect: true
+  reason: json_schema.py:2112 `hash(type(self.mode))` - hash(str) for every non-None
+    mode, so the two literal modes collide while __eq__ discriminates them; the hash/eq
+    contract still holds, as stated. Same defect the later fix corrects.
+  recorded_at: '2026-08-26T17:54:52Z'
+  adjudicated_by: model
+- finding_key: sha256:d3d829133b335d1f7e654ba5ed24a06b347ee58522a8442e6061f216ca732f0f
+  true_defect: true
+  case_defect: true
+  reason: 'json_schema.py:2111-2112: the hash is derived solely from type(self.mode)
+    while the dataclass __eq__ compares json_schema and mode, so unequal instances
+    hash identically - all factually correct. It fingers the same buggy expression
+    and the same collision behaviour as the known type-vs-value hash defect, though
+    it frames the consequence as the ignored json_schema field.'
+  recorded_at: '2026-08-26T17:54:52Z'
+  adjudicated_by: model
+- finding_key: sha256:5ad32d011879d2ca05d4780ffff54138d052990935ad59e2bd1ba29b430a416b
+  true_defect: true
+  case_defect: true
+  reason: json_schema.py:2142 - Examples.__hash__ is `hash(type(self.mode))`, so unequal
+    instances collide while __eq__ compares all fields; correct about the code and
+    about the same buggy expression the fix rewrites.
+  recorded_at: '2026-08-26T17:54:52Z'
+  adjudicated_by: model
+- finding_key: sha256:273df69c1b6af8599d87c4bcb0f8f8b38f07d3c9931acb6a8f8f38b0f487d013
+  true_defect: true
+  case_defect: true
+  reason: 'json_schema.py:2142 `hash(type(self.mode))`: both string modes hash as
+    hash(str), only None differs; the claim and the suggested hash(self.mode) match
+    the known defect precisely.'
+  recorded_at: '2026-08-26T17:54:52Z'
+  adjudicated_by: model
+- finding_key: sha256:7c205aafcdf9942714aea2121b7b97adaf2dce1f8b58f09d3e3eebb57abda24e
+  true_defect: true
+  case_defect: true
+  reason: json_schema.py:2141-2142 - Examples.__hash__ hashes type(self.mode) instead
+    of self.mode (and duplicates WithJsonSchema's body verbatim); both statements
+    check out against the file, and the hash-the-type point is the known defect.
+  recorded_at: '2026-08-26T17:54:52Z'
+  adjudicated_by: model
+- finding_key: sha256:404fb015be281dc7bb0583e682220167255c780cc7cb180e16cbe2747d68311e
+  true_defect: true
+  case_defect: true
+  reason: 'Read json_schema.py:2096-2112: mode is `Literal[''validation'',''serialization'']
+    | None`, __eq__ is dataclass-generated over both fields, __hash__ returns hash(type(self.mode)).
+    Every stated consequence checks out; same defect as the fix.'
+  recorded_at: '2026-08-26T19:24:35Z'
+  adjudicated_by: model
+- finding_key: sha256:326a0138aebbf5b0b83932fdad6d66db7ed98c93dd608ee9b6689e8a9c67eb26
+  true_defect: true
+  case_defect: true
+  reason: Confirmed two textually identical `return hash(type(self.mode))` occurrences
+    at json_schema.py:2112 and 2142; the second belongs to Examples, whose mode is
+    the same Literal|None field. Same defect the fix corrected at both sites.
+  recorded_at: '2026-08-26T19:24:35Z'
+  adjudicated_by: model
+- finding_key: sha256:f9d9351317aaed143607f9710a59f7a22d0fed3932b794565ce8d5f6975e4a88
+  true_defect: true
+  case_defect: false
+  reason: test_hashable_types (tests/test_json_schema.py:4440-4472) only asserts model_json_schema()
+    output and never calls hash(), so it passes with either __hash__ body. Accurate
+    test-gap claim, but it reports the missing coverage rather than the hash defect
+    itself.
+  recorded_at: '2026-08-26T19:24:35Z'
+  adjudicated_by: model
+- finding_key: sha256:402bdbd5ea21844e9f4d587ae2a2fe1f9ec62e9fead0ef04d9a6feba629d72d2
+  true_defect: true
+  case_defect: true
+  reason: Names hash(type(self.mode)) at Examples.__hash__ (json_schema.py:2142) and
+    prescribes hashing self.mode -- exactly the change made by the upstream fix 220cd3d2.
+  recorded_at: '2026-09-02T11:58:45Z'
+  adjudicated_by: model
+- finding_key: sha256:1a1bb4924ebdcb620a495990085ff12459a293b256a765eaa6ccca57fb8428b9
+  true_defect: false
+  case_defect: false
+  reason: Correct observation that test_hashable_types (tests/test_json_schema.py:4441-4471)
+    only asserts model_json_schema() output and never calls hash(), but a missing
+    assertion is a coverage gap, not code that behaves wrongly under any input.
+  recorded_at: '2026-09-02T11:58:45Z'
+  adjudicated_by: model
+- finding_key: sha256:e0ff61d753237325563d80a20c0f43f6cb6c7a16067a34b2a8488bfebb1e79d3
+  true_defect: true
+  case_defect: true
+  reason: 'Precisely describes the defect at json_schema.py:2112: type(self.mode)
+    is only ever str or NoneType, ''validation'' and ''serialization'' become hash-indistinguishable,
+    and the manual __hash__ exists only because slots_dataclass eq=True would set
+    __hash__=None. Matches the upstream fix.'
+  recorded_at: '2026-09-02T11:58:45Z'
+  adjudicated_by: model
+- finding_key: sha256:719ad5dd7aa48ff7445065f59c562fca24b409afd61041066c8cd57a50df54b0
+  true_defect: true
+  case_defect: true
+  reason: Identifies hash(type(self.mode)) at json_schema.py:2112 and correctly notes
+    json_schema is a dict and cannot be hashed, so hashing mode's value is the intended
+    behavior -- the exact change in upstream commit 220cd3d2.
+  recorded_at: '2026-09-02T11:58:45Z'
+  adjudicated_by: model
+- finding_key: sha256:5cf325d95293ac4c36cee327de652e6e26cc9a6f8a832d68e1f637088e73e5fa
+  true_defect: true
+  case_defect: true
+  reason: 'Same mechanism at Examples.__hash__ (json_schema.py:2142): hashes type(self.mode)
+    rather than self.mode, one of the two ground-truth locations.'
+  recorded_at: '2026-09-02T11:58:45Z'
+  adjudicated_by: model
+- finding_key: sha256:38ea86ed627aea2f448eca88ade4f86dc22c973f676c519c2a6dad06883f4c6a
+  true_defect: false
+  case_defect: false
+  reason: Accurately observes that test_hashable_types would pass with either hash
+    implementation, but this is a test-coverage gap in tests/test_json_schema.py,
+    not a defect in code under review.
+  recorded_at: '2026-09-02T11:58:45Z'
+  adjudicated_by: model
+- finding_key: sha256:f1d45531e1d860ce44cf2018413ba0b20d5acc0a8fc7711546361bdfe81eb690
+  true_defect: true
+  case_defect: true
+  reason: Identifies json_schema.py:2112 collapsing to two hash values (str vs NoneType)
+    and that hashing the value costs nothing more — the known defect and its fix.
+  recorded_at: '2026-09-02T15:21:40Z'
+  adjudicated_by: model
+- finding_key: sha256:0c913e0171d91abcfbe0bd1d9a08bca0a0ecac97bcf5714a71baa460b76e2d61
+  true_defect: true
+  case_defect: true
+  reason: Same known defect on Examples.__hash__ at json_schema.py:2142, the second
+    ground-truth line.
+  recorded_at: '2026-09-02T15:21:40Z'
+  adjudicated_by: model
+- finding_key: sha256:c03d1a3e0a9986c591a3a97504e973220805ecd9cf75ff1ccc16fb127e8896d1
+  true_defect: false
+  case_defect: false
+  reason: The claimed failure is hash instability when .mode is mutated after the
+    instance is used as a dict/typing key — but that is a property of any hand-written
+    __hash__ over a mutable dataclass field and is equally true of the corrected hash(self.mode);
+    mutating an Annotated metadata object in place is user error, not a defect in
+    json_schema.py:2141-2142, and it is a different mechanism from the type-vs-value
+    mistake.
+  recorded_at: '2026-09-02T15:21:40Z'
+  adjudicated_by: model
+- finding_key: sha256:2fc33a46c3a60acdcb4e8b3ea2c06c0facd7eac7b3719c98a71799e662c64786
+  true_defect: false
+  case_defect: false
+  reason: 'Same reasoning as F029: the asserted failure needs post-construction reassignment
+    of .mode on a live hash-table member, which breaks identically after the official
+    fix, so it is not a defect of this code; the finding does not claim the type-vs-value
+    mistake as the bug.'
+  recorded_at: '2026-09-02T15:21:40Z'
+  adjudicated_by: model
+- finding_key: sha256:776305513f442e99b0a9ba845274c10490b4a9cd956f6fa8837d2bc4551c4968
+  true_defect: false
+  case_defect: false
+  reason: A test-quality observation about test_hashable_types asserting only schema
+    output; per the batch rule a test gap is not a true_defect.
+  recorded_at: '2026-09-02T15:21:40Z'
+  adjudicated_by: model
+- finding_key: sha256:bda2ca78bcdc93ca30cdab5924fbf24ee916272b727cd8b3173b4e41873b4689
+  true_defect: false
+  case_defect: false
+  reason: A test-gap observation about test_hashable_types. Accurate (the test only
+    asserts model_json_schema output) but a missing test is not a code defect, per
+    the fixed rule for this batch.
+  recorded_at: '2026-09-03T08:10:30Z'
+  adjudicated_by: model
+- finding_key: sha256:1aea585b0abfefa13f68ae151ca31677bc4f6f3747307516d7c81ff052c1355a
+  true_defect: true
+  case_defect: true
+  reason: json_schema.py:2142 `hash(type(self.mode))` in Examples.__hash__ — a ground-truth
+    line. mode is Literal['validation','serialization']|None, so type() yields only
+    str/NoneType and the value is discarded; upstream 220cd3d21 changed exactly this
+    to hash(self.mode).
+  recorded_at: '2026-09-03T08:10:30Z'
+  adjudicated_by: model
+- finding_key: sha256:670a70172751c40f78e6acd14e5514ca8b32d4a20e14d2b70aa86cc212138bea
+  true_defect: true
+  case_defect: true
+  reason: 'Accurate at 2112: type() over Literal[''validation'',''serialization'']|None
+    yields only str/NoneType, dataclass __eq__ still compares by value. Exactly the
+    fix applied in 220cd3d21.'
+  recorded_at: '2026-09-03T08:10:30Z'
+  adjudicated_by: model
+- finding_key: sha256:8eec9e68e9d0760edfea6f46e98abf455fdbcb8b3113899edc8d65ae93656bbd
+  true_defect: true
+  case_defect: true
+  reason: 'json_schema.py:2112-2113 with the correct reasoning: value-based dataclass
+    __eq__ against a hash that only distinguishes str from NoneType. Matches 220cd3d21.'
+  recorded_at: '2026-09-03T08:10:30Z'
+  adjudicated_by: model
+- finding_key: sha256:1e1db259e037362d7edeb976c57918ddb01425cfb67a930cb3462849b701966e
+  true_defect: false
+  case_defect: false
+  reason: Test-gap observation on test_hashable_types; not a code defect under this
+    batch's rule.
+  recorded_at: '2026-09-03T08:10:30Z'
+  adjudicated_by: model
+- finding_key: sha256:e18424de8f0b67aece1d7a782f8b813b3aa78b79988e8378dea1a92eaf5bae0c
+  true_defect: true
+  case_defect: true
+  reason: Examples.__hash__ at 2142 (anchored 2142-2143); correctly notes the body
+    is byte-for-byte identical to WithJsonSchema's, which is why the upstream fix
+    had to change both lines.
+  recorded_at: '2026-09-03T08:10:30Z'
+  adjudicated_by: model
+- finding_key: sha256:e81257352a4d6ed345db6e0364d1ad919f6b10174185b12cce85b2a7efdcce7b
+  true_defect: false
+  case_defect: false
+  reason: Test-gap finding on tests/test_json_schema.py. The observation about the
+    test not calling hash() is correct, but a missing assertion is not misbehaving
+    code under the batch rule.
+  recorded_at: '2026-09-03T08:19:53Z'
+  adjudicated_by: model
+- finding_key: sha256:1871c09b3b20f9115257bbbdc81b0314bec4958b205bb5895f2df2d544fa8b25
+  true_defect: true
+  case_defect: true
+  reason: 'Correctly reads json_schema.py:2142: Examples.__hash__ discards both mode''s
+    value and the examples payload by hashing type(self.mode). Matches ground-truth
+    location and mechanism.'
+  recorded_at: '2026-09-03T08:19:53Z'
+  adjudicated_by: model
+- finding_key: sha256:bdcd4ee3c5015d01257639da1afad14c978acf5b5e0f34dbf9b15f9b9c57aea0
+  true_defect: true
+  case_defect: true
+  reason: Accurate reading of json_schema.py:2111-2112 with the correct caveat that
+    the hash contract still holds; mechanism and location are the ground-truth defect.
+  recorded_at: '2026-09-03T08:19:53Z'
+  adjudicated_by: model
+- finding_key: sha256:694cb926df65963d9ea19037f0936a12bb87f0efc7836385dfa31e5ba6d7690e
+  true_defect: true
+  case_defect: true
+  reason: Examples.__hash__ at 2141-2142 hashes type(self.mode); matches the second
+    ground-truth range and its mechanism.
+  recorded_at: '2026-09-03T08:19:53Z'
+  adjudicated_by: model
+- finding_key: sha256:1aa14e867426116511fb072005e907cb3fb6bba6213eab56b801c9966037af21
+  true_defect: true
+  case_defect: true
+  reason: json_schema.py:2112 read correctly, including that dataclass __eq__ keeps
+    equality sound; the degenerate hash of type(self.mode) is the ground-truth defect.
+  recorded_at: '2026-09-03T08:19:53Z'
+  adjudicated_by: model

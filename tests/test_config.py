@@ -46,9 +46,14 @@ def test_missing_config_file_uses_all_defaults(tmp_path: Path):
     assert loaded.data["discovery"]["discover_all"] is False
 
 
-def test_auth_preflight_budget_defaults_to_one_cent(tmp_path: Path):
+def test_auth_preflight_budget_default_covers_an_ordinary_install(tmp_path: Path):
     loaded = config.load_config(tmp_path)
-    assert loaded.data["runtime"]["auth_preflight_budget_usd"] == 0.01
+    # Measured, not chosen: a preflight `claude -p ok` costs ~$0.0616 on an ordinary install
+    # (2 input + 28 output tokens against 22463 cache-read and 14215 cache-creation -- the cost
+    # is Claude Code's own system prompt, tools and plugins, which no flag makes cheaper). The
+    # old $0.01 could not cover that anywhere plugins are installed and killed 24 bench runs in
+    # one night. Still a fuse: a branch review is $0.3-2.
+    assert loaded.data["runtime"]["auth_preflight_budget_usd"] == 0.10
 
 
 def test_auth_preflight_budget_env_override(tmp_path: Path):
@@ -297,18 +302,43 @@ def test_v2_config_with_high_migrates_and_keeps_its_behavior(tmp_path: Path):
     assert cfg_path.read_text() == original_text  # untouched on disk
 
 
-def test_v3_config_with_a_retired_depth_is_refused_not_coerced(tmp_path: Path):
-    """The remap is a migration, not a coercion: a hand-edited current-version config naming
-    `high` must fail with the accepted values and what `high` became, never quietly run at
-    `medium` (review-invocation spec "The retired high value is refused, never downgraded")."""
+def test_v3_config_accepts_the_deepest_depth_without_a_version_bump(tmp_path: Path):
+    """add-depth-high-pipeline D7: admitting a fourth enum value leaves every existing
+    `version: 3` config valid, so there is nothing to migrate. Bumping the version would push
+    every user through a no-op migration and change `config_hash` -- re-reviewing every branch
+    for a night -- to express nothing (config-loading spec)."""
     cfg_path = tmp_path / ".review-shift" / "config.yml"
     _write(cfg_path, "version: 3\ndepth: high\n")
 
+    loaded = config.load_config(tmp_path)
+    assert loaded.data["depth"] == "high"
+    assert loaded.data["version"] == 3
+    assert loaded.migrated is False
+
+
+def test_v3_config_with_an_unknown_depth_is_refused_naming_the_four(tmp_path: Path):
+    """A level off the ladder still fails by name rather than being coerced to a neighbour."""
+    cfg_path = tmp_path / ".review-shift" / "config.yml"
+    _write(cfg_path, "version: 3\ndepth: paranoid\n")
+
     with pytest.raises(config.ConfigValidationError) as excinfo:
         config.load_config(tmp_path)
-    message = str(excinfo.value)
-    assert "smoke, low, medium" in message
-    assert "`high` is now `medium`" in message
+    assert "smoke, low, medium, high" in str(excinfo.value)
+
+
+def test_v2_high_still_migrates_to_medium_after_high_was_reintroduced(tmp_path: Path):
+    """The trap this change is most likely to spring. `high` is an accepted v3 value again,
+    but it names a deeper, costlier level than the one a v2 config meant by it. A v2 `high`
+    meant today's `medium` and must keep resolving there; following the reintroduced name
+    would silently upgrade every pre-relabel config to the most expensive tier its owner
+    never asked for (config-loading spec "The old high does not become the new high")."""
+    cfg_path = tmp_path / ".review-shift" / "config.yml"
+    _write(cfg_path, "version: 2\ndepth: high\n")
+
+    loaded = config.load_config(tmp_path)
+    assert loaded.data["depth"] == "medium"
+    assert loaded.data["depth"] != "high"
+    assert loaded.migrated is True
 
 
 def test_migrate_unrecognized_version_raises():

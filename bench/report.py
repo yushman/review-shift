@@ -33,6 +33,7 @@ from bench.scorer import (
     yield_per_case,
 )
 from bench.verdict import VerdictIndex
+from review_shift.review import prompt_template_hash
 
 __all__ = ["CLAIM_INTERVAL_WIDTH", "CORPUS_TARGET", "render"]
 
@@ -118,6 +119,35 @@ def _depths(results: list[CaseRunResult]) -> list[str]:
     return [*DEPTHS, *extra]
 
 
+def stale_ladder_depths(results: list[CaseRunResult]) -> list[str]:
+    """Depths whose stored runs did not come from today's prompt for that name.
+
+    This used to be `depth not in DEPTHS`, and add-depth-high-pipeline broke it in the worst
+    available way. The store holds six runs labelled `high` from before the relabel, when
+    `high` named the level now called `medium`. The moment `high` rejoined `DEPTHS` those runs
+    stopped being flagged and would have entered the paired comparison as results for the new
+    tier -- making `medium vs high` a comparison of `medium` against itself under an old name.
+    A name-membership test cannot see that, because the name is exactly what changed.
+
+    `prompt_hash` can: it is recorded by the run and is a hash of the prompt template that
+    actually executed. If it does not match today's template for that depth, the run predates
+    the current meaning of the name, whether that came from a relabel or from an edit to the
+    prompt -- and ADR-015 already makes a prompt edit grounds for re-running anyway.
+    """
+    stale = set()
+    for result in results:
+        if not result.depth or result.prompt_hash is None:
+            continue
+        try:
+            current = prompt_template_hash(result.depth)
+        except OSError:  # a depth whose prompt file no longer exists at all
+            stale.add(result.depth)
+            continue
+        if result.prompt_hash != current:
+            stale.add(result.depth)
+    return sorted(stale)
+
+
 def _depths_with_results(results: list[CaseRunResult]) -> list[str]:
     """`_depths` in ladder order, restricted to depths that actually ran. A depth on the
     ladder with no stored run (e.g. a level added since the last bench run) has nothing to
@@ -133,11 +163,14 @@ def render(results: list[CaseRunResult], verdicts: VerdictIndex) -> str:
     lines.append(f"cases attempted: {total_cases} (corpus growth target: {CORPUS_TARGET})")
 
     depths = _depths(results)
-    pre_relabel = [d for d in depths if d not in DEPTHS]
-    if pre_relabel:
+    unknown = [d for d in depths if d not in DEPTHS]
+    stale = stale_ladder_depths(results)
+    flagged = sorted(set(unknown) | set(stale))
+    if flagged:
         lines.append(
-            f"[PRE-RELABEL DEPTHS: {', '.join(pre_relabel)} -- recorded before the depth "
-            f"ladder was relabelled; these figures are not comparable with the ones above]"
+            f"[PRE-RELABEL DEPTHS: {', '.join(flagged)} -- these runs did not come from "
+            f"today's prompt for that level (renamed ladder, or an edited prompt); their "
+            f"figures are not comparable with the ones above]"
         )
 
     # design.md D2 picked a human judge so the judge would not be the same kind of system as

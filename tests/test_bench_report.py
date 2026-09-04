@@ -3,9 +3,10 @@ present, localization labelled for what it measures, precision now emitted, and 
 nothing adjudicated printed as uncomputed rather than as `0%`.
 """
 from bench.case import Case, GroundTruthRange
-from bench.report import CORPUS_TARGET, render
+from bench.report import CORPUS_TARGET, render, stale_ladder_depths
 from bench.scorer import CaseRunResult
 from bench.verdict import Verdict, VerdictIndex, finding_key
+from review_shift.review import prompt_template_hash
 
 FINDING = {"file": "a.py", "line": 1, "rationale": "the labelled defect"}
 
@@ -136,12 +137,35 @@ def test_report_shows_adjudication_coverage_beside_the_figure():
     assert "adjudicated 3/3 cases" in text
 
 
-def test_report_flags_pre_relabel_depths():
+def test_report_flags_a_depth_whose_stored_prompt_is_not_todays():
+    """add-depth-high-pipeline: the old check was `depth not in DEPTHS`, and readmitting
+    `high` silently disarmed it for exactly the runs it existed to catch -- six stored runs
+    labelled `high` from before the relabel, when `high` named today's `medium`. A name test
+    cannot see a rename, because the name is what changed. `prompt_hash` can."""
     results = _results(1)
     results[0].depth = "high"
+    results[0].prompt_hash = "0" * 64  # not today's prompts/high.md
     text = render(results, _verdicts(1))
     assert "PRE-RELABEL DEPTHS" in text
     assert "high" in text
+
+
+def test_report_does_not_flag_a_depth_whose_stored_prompt_is_current():
+    """The other half: a run recorded from today's prompt is comparable and must not be
+    marked, or the flag becomes noise nobody reads."""
+    results = _results(1)
+    results[0].depth = "high"
+    results[0].prompt_hash = prompt_template_hash("high")
+    text = render(results, _verdicts(1))
+    assert "PRE-RELABEL DEPTHS" not in text
+
+
+def test_a_run_with_no_recorded_prompt_hash_is_not_flagged():
+    """Absence is not evidence: `prompt_hash` missing means the run predates the field, and
+    guessing either way would be worse than saying nothing."""
+    results = _results(1)
+    results[0].prompt_hash = None
+    assert stale_ladder_depths(results) == []
 
 
 def test_report_shows_paired_comparison_as_the_detection_headline():

@@ -30,10 +30,11 @@ GIT_EXCLUDE_ENTRY = ".review-shift/runs/"
 
 
 def _depth_arg(value: str) -> str:
-    """`choices=` would refuse a retired level with argparse's bare "invalid choice", which
-    tells a user whose script says `--depth high` nothing about where `high` went. cli-surface
-    spec: a removed enum value fails naming the accepted set *and* what the old value maps to
-    (restructure-depth-tiers D2 — never silently aliased to a surviving level)."""
+    """`choices=` would refuse an unknown level with argparse's bare "invalid choice". Routing
+    through `depth_error_message` keeps one refusal text shared with config validation, so a
+    user who mistypes a level is told the accepted set from whichever surface they hit
+    (cli-surface spec; restructure-depth-tiers D2 — never silently aliased to a nearby
+    level)."""
     if value not in config_schema.DEPTH_VALUES:
         raise argparse.ArgumentTypeError(config_schema.depth_error_message(value))
     return value
@@ -72,7 +73,8 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     # --depth is an explicit override, same pattern as --base below; omitted, the effective
     # depth comes from config (config-loading spec "CLI flag overrides file value") -- this is
-    # also what lets `depth: high` set only in config.yml take effect (add-depth-high).
+    # also what lets a depth set only in config.yml take effect at all (add-depth-high; the
+    # eager argparse default this replaced made `runtime.model` and the env overrides dead too).
     depth = args.depth if args.depth is not None else loaded.data["depth"]
 
     # Same pattern, and for the same reason: an eager argparse default here would shadow both
@@ -318,7 +320,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run_p.add_argument(
         "--depth", type=_depth_arg, default=None,
-        help="smoke | low | medium (default: config's depth)",
+        help="smoke | low | medium | high (default: config's depth)",
     )
     run_p.add_argument(
         "--model", default=None, help="default: config's runtime.model (sonnet)",

@@ -59,7 +59,7 @@ def check_claude_version() -> DoctorCheck:
     return DoctorCheck("claude_version", True, f"claude {'.'.join(str(p) for p in version)}")
 
 
-def check_auth_liveness(model: str = "sonnet", budget_usd: float = 0.01) -> DoctorCheck:
+def check_auth_liveness(model: str = "sonnet", budget_usd: float = 0.10) -> DoctorCheck:
     try:
         review.check_auth(model, budget_usd)
     except (review.AuthError, review.QuotaError, review.AuthPreflightError) as exc:

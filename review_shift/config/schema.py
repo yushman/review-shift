@@ -5,24 +5,18 @@ from __future__ import annotations
 
 from typing import Any
 
-# restructure-depth-tiers D1/D2: the ladder was relabelled one rung down and `high` was
-# removed outright. Every surface that accepts a depth (the CLI flag, the config schema)
-# reads this one set, and every refusal reads the same message -- a user who types the
-# retired name must be told what it maps to, never silently served a shallower level.
-DEPTH_VALUES: tuple[str, ...] = ("smoke", "low", "medium")
-
-_RELABEL_NOTE = (
-    "the ladder was relabelled: the previous `high` is now `medium`, the previous `medium` "
-    "is now `low`, and the previous `low` is now `smoke`"
-)
+# restructure-depth-tiers D1/D2: the ladder was relabelled one rung down. Every surface that
+# accepts a depth (the CLI flag, the config schema) reads this one set, and every refusal
+# reads the same message. add-depth-high-pipeline refilled the `high` slot the relabel had
+# emptied, so the name is accepted again -- but as the deepest tier, not as the one it used
+# to name. `migrations._V2_TO_V3_DEPTH` is what keeps an old config's `high` pointing at the
+# level it actually meant; the two must not be reconciled.
+DEPTH_VALUES: tuple[str, ...] = ("smoke", "low", "medium", "high")
 
 
 def depth_error_message(value: object) -> str:
     accepted = ", ".join(DEPTH_VALUES)
-    msg = f"invalid depth {value!r}: accepted values are {accepted}"
-    if value == "high":
-        return f"{msg} -- {_RELABEL_NOTE}"
-    return msg
+    return f"invalid depth {value!r}: accepted values are {accepted}"
 
 
 SCHEMA_V3: dict[str, Any] = {
@@ -135,7 +129,13 @@ DEFAULTS: dict[str, Any] = {
         "hard_timeout_minutes": 45,
         "budget_usd": 10.00,
         "total_budget_usd": 50.00,
-        "auth_preflight_budget_usd": 0.01,
+        # Measured, not guessed: a preflight `claude -p ok` costs ~$0.06 on an ordinary
+        # install, because its 36k tokens of Claude Code system prompt, tool definitions
+        # and plugins are charged whatever the probe asks for -- 2 input and 28 output
+        # tokens against 22463 cache-read and 14215 cache-creation. $0.01 could not cover
+        # that on any machine with plugins, which is most of them, and 24 bench runs died
+        # on it in one night. Still a fuse: a review costs $0.3-2.
+        "auth_preflight_budget_usd": 0.10,
         "model": "sonnet",
         "exit_zero_on_findings": False,
     },

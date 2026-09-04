@@ -47,7 +47,14 @@ def cmd_run(args: argparse.Namespace) -> int:
     if not cases:
         print("no confirmed cases to run", file=sys.stderr)
         return 1
-    results = runner.run_all(cases, corpus, budget_usd=args.budget_usd)
+    depths = runner.DEPTHS
+    if args.depths:
+        depths = tuple(d.strip() for d in args.depths.split(",") if d.strip())
+        unknown = [d for d in depths if d not in runner.DEPTHS]
+        if unknown:
+            print(f"unknown depth(s): {', '.join(unknown)}", file=sys.stderr)
+            return 1
+    results = runner.run_all(cases, corpus, depths, budget_usd=args.budget_usd)
     print(report.render(results, load_verdict_index()))
     return 0
 
@@ -55,7 +62,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 def cmd_score(args: argparse.Namespace) -> int:
     """Re-scores the runs already on disk. Costs nothing and calls no model, so it is the way
     to see what a fresh batch of verdicts did to the numbers."""
-    results = runner.load_stored_results(load_cases())
+    results = runner.load_stored_results(_confirmed_cases(load_cases()))
     if not results:
         print("no stored runs found", file=sys.stderr)
         return 1
@@ -104,7 +111,9 @@ def _prompt(item: Item, index: int, total: int) -> Answer | None:
 
 
 def cmd_adjudicate(args: argparse.Namespace) -> int:
-    cases = load_cases()
+    # Same reason as `cmd_score`: a verdict on an unconfirmed case's finding is a label
+    # written after seeing the output, which is the one thing ADR-015 forbids.
+    cases = _confirmed_cases(load_cases())
     if args.case:
         cases = [c for c in cases if c.id == args.case]
         if not cases:
@@ -164,6 +173,10 @@ def build_parser() -> argparse.ArgumentParser:
     rn = sub.add_parser("run", help="run confirmed cases through review-shift and score them")
     rn.add_argument("--fast", action="store_true", help=f"first {FAST_SUBSET_SIZE} cases only")
     rn.add_argument("--budget-usd", type=float, required=True)
+    rn.add_argument(
+        "--depths", default=None,
+        help="comma-separated subset of the ladder, e.g. medium,high (default: all)",
+    )
 
     sub.add_parser("score", help="re-score the runs already on disk; costs nothing")
 

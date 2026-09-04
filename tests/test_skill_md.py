@@ -29,8 +29,11 @@ def test_skill_md_documents_the_one_branch_depth_cap():
     text = CANONICAL_SKILL.read_text()
     assert "one branch" in text
     assert "depth <= low" in text
-    # The retired value must be named as retired, not as a deeper level to reach for.
-    assert "no longer exists" in text
+    # `high` is a real level again, so the skill must refuse it for exceeding the cap and
+    # point at the standalone command -- never as though the value did not exist
+    # (in-session-review spec "Requesting the deepest depth in-session").
+    assert "no longer exists" not in text
+    assert "--depth medium|high" in text
 
 
 def test_skill_md_documents_lock_reuse():

@@ -16,6 +16,12 @@ CURRENT_VERSION = 3
 
 # restructure-depth-tiers D3: every level survived the relabel under a new name, so an exact
 # remap always exists and anything less would silently change what a user's nightly run does.
+#
+# This table is frozen, and add-depth-high-pipeline is exactly why it needs saying. `high` is
+# an accepted v3 value again, but it names a *different, deeper and more expensive* level than
+# the one a v2 config meant by it. A v2 `high` meant what is called `medium` today, so it must
+# keep resolving to `medium`; following the reintroduced name instead would silently upgrade
+# every pre-relabel config to the costliest tier its owner never asked for.
 _V2_TO_V3_DEPTH = {"low": "smoke", "medium": "low", "high": "medium"}
 
 

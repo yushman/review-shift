@@ -35,6 +35,14 @@ from review_shift.exitcodes import (
 
 SEVERITIES = ["critical", "high", "medium", "low", "info"]
 
+# ADR-026 D3 — the depths whose prompt tells the model to read past the diff, and therefore the
+# depths whose findings must be confined to the reviewed unit's own changed files. ADR-026 wrote
+# down the hazard this constant exists to remove: the narrowing is applied on two separate code
+# paths (branch and trunk), and while each carried its own string literal, a relabel or a new
+# tier could move one and leave the other silently reviewing with no floor at all. One
+# definition, read twice.
+DEPTHS_READING_BEYOND_DIFF = frozenset({"medium", "high"})
+
 # "ok"/"cache_hit" are the two outcomes the batch exit-code rule and `latest` treat as
 # successful; the rest are all failures for that purpose (batch-execution spec "Batch exit
 # codes"). "budget_exhausted" is deliberately in neither set: ADR-014 treats it as a normal
@@ -143,12 +151,11 @@ def _review_branch(
         merge_base_sha = gitutil.merge_base(repo_root, base, branch)
         diff_text = gitutil.merge_base_diff(repo_root, base, branch)
         repo_files = gitutil.ls_tree_files(repo_root, head_sha)
-        # add-depth-high design.md D3, keyed on `medium` since restructure-depth-tiers
-        # relabelled the ladder: at the deepest level a review may read the whole repo for
-        # context but may only report on files the branch itself changed. Intersected with
-        # the tree so a file the branch deleted stays out (`--name-only` lists it; the tree
-        # at head_sha does not).
-        if depth == "medium":
+        # add-depth-high design.md D3: at any level that reads beyond the diff, a review may
+        # read the whole repo for context but may only report on files the branch itself
+        # changed. Intersected with the tree so a file the branch deleted stays out
+        # (`--name-only` lists it; the tree at head_sha does not).
+        if depth in DEPTHS_READING_BEYOND_DIFF:
             repo_files &= gitutil.merge_base_changed_files(repo_root, base, branch)
     except gitutil.GitError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -585,8 +592,8 @@ def _review_trunk_target(
             try:
                 repo_files = gitutil.ls_tree_files(repo_root, unit.sha)
                 # add-depth-high design.md D3, trunk path: narrow to the commit's own
-                # changed files at `medium`, mirroring the branch path above.
-                if depth == "medium":
+                # changed files, reading the same depth set as the branch path above.
+                if depth in DEPTHS_READING_BEYOND_DIFF:
                     repo_files &= gitutil.commit_changed_files(repo_root, unit.sha)
             except gitutil.GitError as exc:
                 units_meta.append({"sha": unit.sha, "status": "error", "cost_usd": 0.0,
@@ -873,6 +880,38 @@ def _write_batch_summary(
     (out_dir / f"{batch_id}.json").write_text(json.dumps(summary, indent=2))
 
 
+def _gate_oversize_branches(
+    repo_root: Path, base: str, branches: list[str]
+) -> tuple[list[str], list[dict[str, Any]]]:
+    """Apply ADR-018's diff-size cut-off to every branch about to be reviewed, whatever put it
+    on the list.
+
+    `discover.discover` already gates the branches it selects, so on the discovery path this
+    is a second, redundant pass. The explicit `--branch` path had no gate at all, and that is
+    the defect: `run --branch X` on a 2 668-line diff sent the whole thing to the model, which
+    answered with empty stdout on all three attempts. The README, `system-analysis.md` §2 and
+    ADR-018 all state the cut-off unconditionally — the gate belongs where every branch passes,
+    not only where discovery selects one.
+
+    A branch whose size cannot be measured is left in: the git failure is reported per branch
+    by `_review_branch`, which is a louder and more specific outcome than a skip would be."""
+    keep: list[str] = []
+    skipped: list[dict[str, Any]] = []
+    for branch in branches:
+        try:
+            changed = discover.merge_base_changed_lines(repo_root, base, branch)
+        except discover.DiscoverError:
+            keep.append(branch)
+            continue
+        if changed > discover.MAX_DIFF_LINES:
+            skipped.append(
+                {"branch": branch, "reason": "diff_too_large", "changed_lines": changed}
+            )
+        else:
+            keep.append(branch)
+    return keep, skipped
+
+
 def run_batch(
     *,
     repo_root: Path,
@@ -909,6 +948,31 @@ def run_batch(
 
     try:
         with lock.acquire(repo_root):
+            # The diff-size gate runs before the preflight so an all-oversize batch spends
+            # nothing at all, and inside the lock so its skips are in `discovery_skipped`
+            # before the first run.json is written (ADR-007's atomic-write ordering).
+            if not trunk:
+                branches, oversize = _gate_oversize_branches(repo_root, base, branches)
+                if oversize:
+                    discovery_skipped = [*discovery_skipped, *oversize]
+                    for entry in oversize:
+                        print(
+                            f"skipped {entry['branch']}: diff_too_large "
+                            f"({entry['changed_lines']} changed lines, "
+                            f"limit {discover.MAX_DIFF_LINES})",
+                            file=sys.stderr,
+                        )
+                if not branches:
+                    # Nothing left to review, and nothing failed: ADR-007/ADR-022 both make
+                    # "no work" a successful, fully recorded run, not an error.
+                    print("no branches left to review", file=sys.stderr)
+                    _write_batch_summary(
+                        out_dir, base, batch_id=batch_id, started_at=batch_started_at,
+                        outcomes=[], discovery_skipped=discovery_skipped,
+                        auth_status="skipped", exit_code=EXIT_OK,
+                    )
+                    return EXIT_OK
+
             # Auth preflight before any branch starts (budget-and-resilience spec "Auth
             # preflight before the batch") — a broken/expired auth environment must be visible
             # immediately, not discovered mid-batch. It is itself a `claude -p` call, so a dry

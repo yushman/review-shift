@@ -42,3 +42,364 @@ verdicts:
     worktree paths.
   recorded_at: '2026-08-20T07:56:41Z'
   adjudicated_by: model
+- finding_key: sha256:6bac854d57739a2f1f0d2dab1811db6dc3c67b3e455cf78af3e4c17dfad4d99a
+  true_defect: true
+  case_defect: false
+  reason: checkout.go:277 in cmdsForMissingRemote runs `-C <wt> checkout -B <localBranch>
+    FETCH_HEAD` with no reference to opts.Force, while every sibling sync path goes
+    through syncBranchCmds (line 358-366) which only hard-resets under --force and
+    otherwise uses merge --ff-only; -B force-moves the branch ref, so local commits
+    are dropped without --force. Unrelated to the missing `--` separator in the note.
+  recorded_at: '2026-08-26T17:54:52Z'
+  adjudicated_by: model
+- finding_key: sha256:dc7e76faa0e37492886e9d65911bf313fc90fc12792ed57d40f2b8b67c989984
+  true_defect: true
+  case_defect: false
+  reason: 'Verified checkout.go:277: `checkout -B <branch> FETCH_HEAD` ignores opts.Force,
+    unlike syncBranchCmds used by every other sync path; -B resets the branch ref,
+    discarding local commits without --force. Known defect here is the missing `--`
+    before the worktree path, which this does not touch.'
+  recorded_at: '2026-08-26T17:54:52Z'
+  adjudicated_by: model
+- finding_key: sha256:8af1b1ff9745278827fa44831ee4f67cdad5e2656360085520069578c93a51a3
+  true_defect: true
+  case_defect: false
+  reason: Same verified claim as F006/F010 about checkout.go:277 - unconditional `checkout
+    -B` bypasses the opts.Force gate that syncBranchCmds/worktreeCheckoutCmds apply
+    everywhere else. Unrelated to the `--` separator defect.
+  recorded_at: '2026-08-26T17:54:52Z'
+  adjudicated_by: model
+- finding_key: sha256:b01495df276639c75b32f88999280f30bbd1652de25b799a3298c0cf2d32f642
+  true_defect: false
+  case_defect: false
+  reason: checkout.go:220 -> worktreeCheckoutCmds emits `-C <wt> checkout <branch>`
+    right after `git fetch <remote> +refs/heads/X:refs/remotes/<remote>/X`. Git's
+    default DWIM (checkout.guess) creates the local branch from the single matching
+    remote-tracking ref, so the claimed 'pathspec did not match any file(s)' failure
+    does not occur in the described scenario.
+  recorded_at: '2026-08-26T17:54:52Z'
+  adjudicated_by: model
+- finding_key: sha256:8bd42f4530b63e3bcd449e434d1c85280e7fbbb494c47e1586a7f22fb4b18165
+  true_defect: false
+  case_defect: false
+  reason: Same claim as F015 about checkout.go:220/worktreeCheckoutCmds. The bare
+    `checkout <branch>` follows a fetch that writes refs/remotes/<remote>/<branch>,
+    and git's default DWIM turns that into `checkout -b <branch> --track <remote>/<branch>`,
+    so the described failure does not happen.
+  recorded_at: '2026-08-26T17:54:52Z'
+  adjudicated_by: model
+- finding_key: sha256:6edec3c39768eb6330f068181463eebe66b02a2a79cc0753151ec3949cb5200d
+  true_defect: true
+  case_defect: true
+  reason: checkout.go:250 is `{"worktree","add","--detach",opts.Worktree,"FETCH_HEAD"}`
+    with no `--` before the user-supplied path, so a dash-leading --worktree value
+    is parsed as an option. Exactly one of the five call sites the fix commit patched.
+  recorded_at: '2026-08-26T17:54:52Z'
+  adjudicated_by: model
+- finding_key: sha256:0b3f723691c6141222dc8823db5e078ccc5d4d6aa904596304f9c3c4fdd74e3b
+  true_defect: true
+  case_defect: true
+  reason: Points one line above checkout.go:225, `{"worktree","add","--track","-b",localBranch,opts.Worktree,remoteBranch}`,
+    which passes the user path positionally with no `--`; that is one of the call
+    sites in known_defect_location and the same dash-path misparse.
+  recorded_at: '2026-08-26T17:54:52Z'
+  adjudicated_by: model
+- finding_key: sha256:0b4370009a22b2890e1b68dae2daebe25965fcebf14921ad4e17f6073be3c939
+  true_defect: true
+  case_defect: true
+  reason: checkout.go:284 is `{"worktree","add",opts.Worktree,localBranch}` with no
+    end-of-options `--`; a dash-leading path is parsed as an option. One of the exact
+    lines the fix commit touched.
+  recorded_at: '2026-08-26T17:54:52Z'
+  adjudicated_by: model
+- finding_key: sha256:b13d8a39ceed1998b1be9e859f0adb0088f79d854ea41470761d4eb549280f8f
+  true_defect: true
+  case_defect: true
+  reason: Describes checkout.go:225 (`worktree add --track -b <branch> <path> <remoteBranch>`)
+    - the path follows `-b localBranch` positionally with no `--`; line pointer is
+    two lines off but the mechanism and call site are one of the five in the known
+    fix.
+  recorded_at: '2026-08-26T17:54:52Z'
+  adjudicated_by: model
+- finding_key: sha256:47e8db0abd52376fb5548fef467d48e16f4dd836db69e798f7f2f503c15668a1
+  true_defect: true
+  case_defect: true
+  reason: Quotes `worktree add --detach opts.Worktree FETCH_HEAD`, i.e. checkout.go:214,
+    and correctly names the other four call sites (224/227/250/284); a dash-leading
+    --worktree path is parsed as an option by git worktree add. Same defect as the
+    fix.
+  recorded_at: '2026-08-26T17:54:52Z'
+  adjudicated_by: model
+- finding_key: sha256:1cbd697762f6452638e05d0e34091528383cb770fb7145274373710da76eb3f8
+  true_defect: true
+  case_defect: true
+  reason: checkout.go lines 214, 222, 225, 250, 284 all pass opts.Worktree as a bare
+    positional to `git worktree add` with no `--`; the only validation (line 65) rejects
+    blank, and the dash guard at line 140 covers pr.HeadRefName, not Worktree. This
+    is the known defect.
+  recorded_at: '2026-08-26T19:24:35Z'
+  adjudicated_by: model
+- finding_key: sha256:faa72c62e34664c37ef2abbf8b83c425b0029690cdbff3382053740be5a56325
+  true_defect: true
+  case_defect: false
+  reason: checkout.go:162-165 queues `submodule sync/update` with no -C prefix, and
+    git/client.go:77-80 only prepends -C when RepoDir is set, which pkg/cmd/factory/default.go:240-249
+    never does for pr checkout (grep shows RepoDir assigned only in clone/create/fork/extension/skills).
+    So with --worktree the submodule commands run in the invoking repo, not the new
+    worktree. Unrelated to the missing `--`.
+  recorded_at: '2026-08-26T19:24:35Z'
+  adjudicated_by: model
+- finding_key: sha256:f15dbc28588544b4f3c8ab108d066ecad064cbfe987d98e76c1f2dc260da5828
+  true_defect: true
+  case_defect: false
+  reason: checkout.go:273-277 queues `checkout -B <localBranch> FETCH_HEAD` with no
+    reference to opts.Force, while syncBranchCmds (353-362) used at 223/229/289 only
+    hard-resets under --force; the test at checkout_test.go:488-514 does register
+    `git -C /path/to/wt checkout -B feature FETCH_HEAD`. Real inconsistency, but not
+    the missing-`--` defect.
+  recorded_at: '2026-08-26T19:24:35Z'
+  adjudicated_by: model
+- finding_key: sha256:64d1d5c496b166d3d92b040751e9af0f42a94b3bcc2bff6fe651e7aa8b70c501
+  true_defect: true
+  case_defect: false
+  reason: isWorktreeAtPath (checkout.go:330-348) only scans `worktree ` prefixes from
+    `git worktree list --porcelain` and ignores prunable annotations, so an rm -rf'd
+    but unpruned worktree still returns true and routing goes to the `git -C <missing
+    path> ...` reuse branch. Real, low-impact, and unrelated to the missing `--`.
+  recorded_at: '2026-08-26T19:24:35Z'
+  adjudicated_by: model
+- finding_key: sha256:98d6985f62cf8c20ced3650caab1e37e18453bc8a42bce2b7c2ecb2ed8697248
+  true_defect: true
+  case_defect: false
+  reason: checkout.go:220 routes worktree reuse through worktreeCheckoutCmds, whose
+    bare `checkout <branch>` (line 367) relies on DWIM against refs/remotes/<remote>/<pr.HeadRefName>;
+    with --branch a custom localBranch (194-196) has neither a local branch nor a
+    matching remote-tracking ref, so the checkout fails. The sibling branches at 222/225
+    avoid this, and checkout_test.go:517 only covers a custom name with a fresh worktree.
+    Unrelated to the missing `--`.
+  recorded_at: '2026-08-26T19:24:35Z'
+  adjudicated_by: model
+- finding_key: sha256:c16008cffc096c9527e779cbb76b37a27585ed43b2c9cc21d27af4a5eeeed364
+  true_defect: true
+  case_defect: true
+  reason: Anchored at the flag declaration (line 106) but names the mechanism exactly
+    and enumerates lines 214, 222, 225, 250, 284 -- the complete ground-truth set
+    -- and contrasts it with the existing HasPrefix(pr.HeadRefName, "-") guard at
+    line 140.
+  recorded_at: '2026-09-02T11:58:45Z'
+  adjudicated_by: model
+- finding_key: sha256:c046c116387b595b553c57532a3ebfe76f1b855b029bcca205faee574e64e84f
+  true_defect: true
+  case_defect: false
+  reason: 'checkout.go:279-284: the new-worktree fork path fetches `refs/pull/N/head:<localBranch>`,
+    which git refuses when localBranch is checked out anywhere (''refusing to fetch
+    into branch ... checked out at''), and --force does not lift that check. The sibling
+    branch at line 286 exists precisely to avoid this for the current branch but the
+    worktree case bypasses it. Real, distinct from the `--` separator defect.'
+  recorded_at: '2026-09-02T11:58:45Z'
+  adjudicated_by: model
+- finding_key: sha256:5e1c1bde94be3379515c0ee89db0a9dabbf747b97eced6293f35bceed482acee
+  true_defect: false
+  case_defect: false
+  reason: The claim rests on `git -C <wt> checkout <branch>` failing when the branch
+    has no local ref, but git's default checkout.guess DWIM creates a local tracking
+    branch when exactly one refs/remotes/*/<branch> exists -- and the fetch at line
+    209 has just created refs/remotes/<remote>/<branch>. The described 'pathspec did
+    not match' failure does not occur in the standard configuration.
+  recorded_at: '2026-09-02T11:58:45Z'
+  adjudicated_by: model
+- finding_key: sha256:2cdb9d4480b83a74fb45cb5bb2de739798ca5f57fcff84d883af11a4b88b0190
+  true_defect: false
+  case_defect: false
+  reason: checkout.go:221-223 does fail when the branch is already checked out elsewhere,
+    but git fundamentally cannot check out one branch in two worktrees, so failing
+    is correct behavior and git emits its own explanatory 'already used by worktree
+    at' message. The finding proposes an outcome ('succeeding') that is impossible;
+    this reduces to error-message polish.
+  recorded_at: '2026-09-02T11:58:45Z'
+  adjudicated_by: model
+- finding_key: sha256:fbd7e8f37f375fcf66b88254c77740c04d518f590ba6da316ab52b1eafdd2342
+  true_defect: false
+  case_defect: false
+  reason: A placement/abstraction preference about isWorktreeAtPath (checkout.go:329-348)
+    living outside git.Client. No input or state makes the code behave wrongly.
+  recorded_at: '2026-09-02T11:58:45Z'
+  adjudicated_by: model
+- finding_key: sha256:0f1061913d301fa2df347d41b64f6933154a5c5d59f1bad6968a213ae2f09aed
+  true_defect: true
+  case_defect: false
+  reason: 'Same real defect as F017 at checkout.go:277: `checkout -B` ignores opts.Force
+    and can discard local commits where syncBranchCmds would have used merge --ff-only.
+    Corroborated by the added test ''checkout fork PR without a remote into the same
+    worktree again'' stubbing `checkout -B feature FETCH_HEAD` with Force unset. Not
+    the `--` separator ground truth.'
+  recorded_at: '2026-09-02T11:58:45Z'
+  adjudicated_by: model
+- finding_key: sha256:6056f5c5376462e833ec4914dc6de1f8266013ca345897e75216e99e5f55a17c
+  true_defect: false
+  case_defect: false
+  reason: 'Same mistaken premise as F024: worktreeCheckoutCmds'' plain `git -C <path>
+    checkout <branch>` resolves via git''s default DWIM against the refs/remotes/<remote>/<branch>
+    just created by the fetch at line 209, so it does not fail when the local branch
+    is absent.'
+  recorded_at: '2026-09-02T11:58:45Z'
+  adjudicated_by: model
+- finding_key: sha256:c8d8e276312de7ec7047871befcffaeee55b761be6f226b77adece4ca09fef0a
+  true_defect: true
+  case_defect: false
+  reason: isWorktreeAtPath (checkout.go:330-348) parses only the `worktree <path>`
+    lines of `git worktree list --porcelain` and ignores prunable/stale entries, and
+    nothing in the diff prunes. After an `rm -rf` of the worktree directory git still
+    lists it, so checkoutRun takes the reuse branch and runs `git -C <missing dir>
+    fetch/checkout`. Real, but unrelated to the `--` separator ground truth.
+  recorded_at: '2026-09-02T11:58:45Z'
+  adjudicated_by: model
+- finding_key: sha256:f97cafeb33654627cf3f6b1fdb181e8bfa79c0b28548cc3becf01d98b2fc55a3
+  true_defect: true
+  case_defect: false
+  reason: checkout.go:162-165 appends `submodule sync/update` with no `-C opts.Worktree`,
+    and executeCmds runs them in the client's repo dir, so `--worktree` combined with
+    `--recurse-submodules` updates the original checkout's submodules and leaves the
+    new worktree's uninitialized, with no error. Real, distinct from the `--` separator
+    ground truth.
+  recorded_at: '2026-09-02T11:58:45Z'
+  adjudicated_by: model
+- finding_key: sha256:a30c4633b89fd469165dcc7d907138f0f84c9dda63d43c05d1bbb021776416ed
+  true_defect: true
+  case_defect: true
+  reason: Points at the `worktree add --detach opts.Worktree FETCH_HEAD` call (checkout.go:214)
+    with no `--` before the path; git's parse-options rejects a dash-leading path.
+    checkoutRun guards pr.HeadRefName at line 140 but nothing guards opts.Worktree.
+    This is the known defect.
+  recorded_at: '2026-09-02T15:21:40Z'
+  adjudicated_by: model
+- finding_key: sha256:1926e35c7de82f75af02759393a7612b52e7c09653fe16e3fcfd0fa1ce38f168
+  true_defect: true
+  case_defect: true
+  reason: Missing `--` before opts.Worktree in cmdsForMissingRemote's detach branch,
+    `worktree add --detach <path> FETCH_HEAD` at checkout.go:250 — exactly a known-defect
+    line.
+  recorded_at: '2026-09-02T15:21:40Z'
+  adjudicated_by: model
+- finding_key: sha256:db760279839b98131bd8e137c29528367524ff569f12fc218f8e58d12c92858e
+  true_defect: true
+  case_defect: true
+  reason: Missing `--` before opts.Worktree in `worktree add <path> <localBranch>`
+    for the existing-local-branch case (checkout.go:222, anchored at 221); a known-defect
+    line.
+  recorded_at: '2026-09-02T15:21:40Z'
+  adjudicated_by: model
+- finding_key: sha256:a3f0b3c88999417f4ff5c81baccd8d9f19b2f1de668dd7181f6c20b033686955
+  true_defect: true
+  case_defect: false
+  reason: checkout.go:279-284 fetches `refs/pull/N/head:<localBranch>` when the target
+    path is not yet a worktree, with no check that <localBranch> is already checked
+    out; git refuses to update a ref checked out in any worktree, and unlike the pre-diff
+    code (which special-cased localBranch == currentBranch, now only reached in the
+    non-worktree else at line 286) nothing handles that here. Real, but not the `--`
+    defect.
+  recorded_at: '2026-09-02T15:21:40Z'
+  adjudicated_by: model
+- finding_key: sha256:861eb9bfed4afdabaad5cc9346b1b32ec12ca33462b04cbff938835a083a0c75
+  true_defect: true
+  case_defect: false
+  reason: checkout.go:367 passes the branch name as a bare positional to `git checkout`.
+    The finding's headline trigger is wrong — checkoutRun rejects a dash-leading pr.HeadRefName
+    at line 140-142 — but it also names --branch, which is unguarded, so `--branch
+    -foo` into an existing worktree does reach `git -C <path> checkout -foo`. Not
+    one of the five worktree-add lines.
+  recorded_at: '2026-09-02T15:21:40Z'
+  adjudicated_by: model
+- finding_key: sha256:3a899c76df839732564a842ef6950d26eb6e8b5cef3b9fb81086d79ef521f1a1
+  true_defect: false
+  case_defect: false
+  reason: An assertion-coverage observation about executeCmds' cmd.Dir handling (checkout.go:403-410)
+    not being checked by the new tests; per the batch rule a test gap is not a true_defect.
+  recorded_at: '2026-09-02T15:21:40Z'
+  adjudicated_by: model
+- finding_key: sha256:f4a70fe28ec3513d7b7359602da119daf713a91638e7e0a8a3ec7f2196b5cd5c
+  true_defect: true
+  case_defect: true
+  reason: Missing `--` before opts.Worktree at checkout.go:284 (`worktree add <path>
+    <localBranch>`, fork PR, path not yet a worktree), anchored at 282 — a known-defect
+    line.
+  recorded_at: '2026-09-02T15:21:40Z'
+  adjudicated_by: model
+- finding_key: sha256:b15611896b868a72a8804d65a11693c63e6af1345260f0a460cebf90fc98e5de
+  true_defect: true
+  case_defect: true
+  reason: Missing `--` before opts.Worktree in `worktree add --track -b <branch> <path>
+    <remote-branch>` (checkout.go:225, anchored at 224) — a known-defect line.
+  recorded_at: '2026-09-02T15:21:40Z'
+  adjudicated_by: model
+- finding_key: sha256:5c70963dbdf1c48567ff96763426164e02b73e14a33512738645cf3645ea05db
+  true_defect: true
+  case_defect: false
+  reason: checkout.go:277 emits `git -C <wt> checkout -B <branch> FETCH_HEAD` unconditionally,
+    while syncBranchCmds (line 353) gates a hard reset behind Force and otherwise
+    does merge --ff-only; the added test at checkout_test.go:488 registers exactly
+    this -B command with Force unset. Real data-loss path, but not the missing `--`
+    separator.
+  recorded_at: '2026-09-03T08:10:30Z'
+  adjudicated_by: model
+- finding_key: sha256:66b786baadc76ee615114368d4201b9f519d7b9c21368db598abe08802664b87
+  true_defect: false
+  case_defect: false
+  reason: Help-text wording only. The isWorktreeAtPath branches do reuse an existing
+    worktree, so the observation is accurate, but nothing in the code misbehaves —
+    a documentation preference, not a defect.
+  recorded_at: '2026-09-03T08:10:30Z'
+  adjudicated_by: model
+- finding_key: sha256:0180dca7966f1cdac7b8830fba149bf422b8a343dd477fca62c91fbfc30d5556
+  true_defect: true
+  case_defect: false
+  reason: Same gap as F013 at checkout.go:218-220 — worktreeCheckoutCmds runs a bare
+    `checkout <branch>` with no localBranchExists branch. Reachable with `--branch
+    <custom>` into an already-registered worktree, where the local branch cannot exist
+    and DWIM cannot create it.
+  recorded_at: '2026-09-03T08:10:30Z'
+  adjudicated_by: model
+- finding_key: sha256:22cb2e959644ecb18734c932ff5d91c04c2e439558d48a1d7100b3599607934c
+  true_defect: true
+  case_defect: false
+  reason: Same verified line-277 unconditional reset. The comparison to the `localBranch
+    == currentBranch` case at 286-289, which does use syncBranchCmds(…, opts.Force),
+    is accurate.
+  recorded_at: '2026-09-03T08:10:30Z'
+  adjudicated_by: model
+- finding_key: sha256:6e7541967c2120b1fbdc379a38ba698e359fbac43b6edbdd8dde15b22ac663d5
+  true_defect: true
+  case_defect: false
+  reason: Same real inconsistency as F002 at checkout.go:277 — `checkout -B <branch>
+    FETCH_HEAD` ignores opts.Force while syncBranchCmds gates the destructive path
+    on it. The 'discards uncommitted changes' wording overstates slightly (a merging
+    checkout refuses on conflicting working-tree edits) but the branch-ref reset and
+    lost local commits are real. Not the `--` separator defect.
+  recorded_at: '2026-09-03T08:19:53Z'
+  adjudicated_by: model
+- finding_key: sha256:d394cdf9a05415e986ea48ce140452d85a264f90f5607213ff576b602f6da663
+  true_defect: false
+  case_defect: false
+  reason: Explicitly a test-gap claim about checkout_test.go (no Force variant for
+    the reused-worktree fork case); accurate but not misbehaving code, so false per
+    the batch rule.
+  recorded_at: '2026-09-03T08:19:53Z'
+  adjudicated_by: model
+- finding_key: sha256:527440486568587a7e958fbc51a4711b5426ff1f3ce1fe224002d87e39b48f99
+  true_defect: false
+  case_defect: false
+  reason: Same incorrect premise as F027 — a bare `git checkout <branch>` does not
+    require the local branch to exist when exactly one remote-tracking ref of that
+    name exists, and cmdsForExistingRemote fetches that ref on the line before worktreeCheckoutCmds
+    runs.
+  recorded_at: '2026-09-03T08:19:53Z'
+  adjudicated_by: model
+- finding_key: sha256:d277c3f628ef836169a467a6d022560e01a05bce9b1678c18f4ca5b9a4997d70
+  true_defect: true
+  case_defect: false
+  reason: Covers checkout.go:271-283 and correctly states that `checkout -B` there
+    ignores opts.Force while syncBranchCmds (l.353-361) is the Force gate used everywhere
+    else, contradicting the commit message's own 'fast-forwards the existing worktree'
+    promise. Real, but not the missing `--`.
+  recorded_at: '2026-09-03T08:19:53Z'
+  adjudicated_by: model

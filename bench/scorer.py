@@ -97,6 +97,9 @@ class CaseRunResult:
     run_dir: Path | None = None
     repo_dir: Path | None = None
     head_sha: str | None = None
+    # The prompt template hash recorded by the run itself. A stored run's `depth` is only a
+    # name; this is what actually ran. See `report.stale_ladder_depths`.
+    prompt_hash: str | None = None
 
 
 @dataclass(frozen=True)
