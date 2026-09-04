@@ -41,7 +41,8 @@ if anchors_wanted:
     # the earlier repeats of the depth being re-run, which are exactly the findings a repeat
     # design needs a second judge to rule on (devlog Day 26).
     depths_under_test = {it.depth for it in items}
-    same, other = [], []
+    same: list[Item] = []
+    other: list[Item] = []
     for result in results:
         for finding in result.findings or []:
             if verdicts.resolve(result.case.id, finding) is None:
@@ -85,7 +86,7 @@ out.write_text(json.dumps(work, indent=2, ensure_ascii=False))
 (out.parent / "keymap.json").write_text(json.dumps(keymap, indent=2))
 anchors = sum(1 for v in keymap.values() if v["anchor"])
 print(f"{len(work)} findings -> {out} ({len(work) - anchors} new, {anchors} anchors)")
-print("repos:", sorted({w['repo'] for w in work}))
+print("repos:", sorted({it.case.repo for it in items}))
 
 # Kept in-tree because the blinding is the method, not a one-off: ADR-015 D2 only tolerates a
 # model judge when it cannot see which depth produced a finding (devlog Day 22, Day 24). Doing
