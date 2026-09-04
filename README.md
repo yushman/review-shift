@@ -81,13 +81,16 @@ that file is the reference. A few fields worth knowing about before you first tu
 | `smoke` | the changed hunks only | one pass | `low` |
 | `low` | the changed files in full | one pass | `medium` |
 | `medium` | the changed files plus their direct first-level imports | one pass | `high` |
-| `high` | the same as `medium` — no wider | ten angles, then verify, then a sweep for gaps | `xhigh` |
+| `high` | the same as `medium` — no wider | ten angles, then deduplicate, then a sweep for gaps | `xhigh` |
 
 **The ladder's axis changes at the top rung, and the table says so rather than implying a wider
 read.** The first three levels differ by how much material the model is given. `high` is given
 exactly what `medium` is given and differs by what it does with it: it works ten independent
-angles over the diff in sequence, deduplicates and verifies what they turn up, then takes a
-final pass looking only for what the first ten missed. It is the slowest and most expensive
+angles over the diff in sequence, merges the near-duplicates they turn up, then takes a
+final pass looking only for what the first ten missed. It deliberately does **not** re-judge
+its own candidates: the only context available to check one is the context that produced it, so
+a verification pass discards the findings it is least sure of rather than testing them.
+Uncertainty is reported in each finding's `confidence` instead. It is the slowest and most expensive
 level by a clear margin.
 
 New installs default to `medium`. Nightly runs are unattended, so a few minutes per branch

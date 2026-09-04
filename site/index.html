@@ -108,9 +108,11 @@ review-shift init launchd</code></div>
 │   └── all.patch
 └── run.json             <span class="c"># shas, cost, duration, model used</span></pre>
   <table>
-    <tr><th>level</th><th>reads</th><th>per branch</th></tr>
-    <tr><td><code>low</code></td><td>changed files in full</td><td class="n">~$0.52 · 95 s</td></tr>
-    <tr><td><code>medium</code></td><td>+ the files they import</td><td class="n">~$0.77 · 217 s</td></tr>
+    <tr><th>level</th><th>reads</th><th>per branch (median)</th></tr>
+    <tr><td><code>smoke</code></td><td>the changed hunks</td><td class="n">$0.23 · 36 s</td></tr>
+    <tr><td><code>low</code></td><td>changed files in full</td><td class="n">$0.22 · 89 s</td></tr>
+    <tr><td><code>medium</code></td><td>+ the files they import</td><td class="n">$0.34 · 194 s</td></tr>
+    <tr><td><code>high</code></td><td>same, in a three-phase pass</td><td class="n">$0.63 · 365 s</td></tr>
   </table>
 </section>
 
@@ -131,10 +133,10 @@ review-shift init launchd</code></div>
   <div class="faq">
     <div class="q"><b>What do I need before installing?</b><p>The Claude Code CLI 2.1.0 or newer, already authenticated, and Python 3.11+. The scheduled path uses <code>launchd</code>, so it's macOS; the CLI itself runs on Linux too, and you can drive it from cron or CI.</p></div>
     <div class="q"><b>Does my code leave my machine?</b><p>It goes exactly where a Claude Code session sends it, because that's what runs the review — nowhere else. There's no hosted service, no account, no telemetry. Secrets in the diff are masked first, and four secret-shaped path patterns can never be un-excluded.</p></div>
-    <div class="q"><b>What does it cost?</b><p>It spends your Claude Code budget, roughly $0.52–$0.77 per branch depending on depth. Nothing is charged by this project. Caps are on by default — $10 per branch, $50 per run — and a run that hits one stops and tells you.</p></div>
+    <div class="q"><b>What does it cost?</b><p>It spends your Claude Code budget, a median of $0.22&#8211;$0.63 per branch depending on depth, and under $2 even on the largest branch it will accept. Nothing is charged by this project. Caps are on by default — $10 per branch, $50 per run — and a run that hits one stops and tells you.</p></div>
     <div class="q"><b>I already have review on pull requests. Why this?</b><p>Because this happens before the PR exists. The branch you've been on for three days gets read tonight, while the change is still cheap to alter — and it happens locally, without pushing work-in-progress anywhere.</p></div>
     <div class="q"><b>Will it flood me with nitpicks?</b><p>Set the severity floor. Only findings above it reach the auto-apply patch; the rest stay in the report where you can ignore them. The default floor is <code>high</code>.</p></div>
-    <div class="q"><b>How good is it, really?</b><p>Every patch it generated in the benchmark applied on the first try: 18 of 18, 95% CI 82–100%. On finding defects the corpus is six real upstream bugs — enough to show the deeper level finds about twice as many as the shallower one, not enough for a significance claim, and the project's own harness marks its recall figure as unpublishable. Two of the six were missed by every level.</p></div>
+    <div class="q"><b>How good is it, really?</b><p>One number is solid: every patch it generated in the benchmark applied on the first try &#8212; 22 of 22, 95% CI 85&#8211;100%. That one is checked by <code>git apply --check</code>, not by judgement, so it does not depend on who scored it. When a finding really is the defect, the patch lands within ten lines of the upstream fix in 20 of 20 cases.</p><p>On <em>finding</em> defects, be sceptical of anything anyone tells you, including us. The corpus is four upstream bugs the tool will review (two more are larger than its own size limit, so it declines them), one of which no level has ever caught. The project's own harness marks every detection figure as unpublishable, and repeat runs of an unchanged configuration moved precision by 43 points &#8212; so we quote none of them. That is the honest state of it until the corpus is bigger.</p></div>
     <div class="q"><b>What if I hate it?</b><p><code>pipx uninstall review-shift</code>. It never wrote to your repository, so there is nothing to undo.</p></div>
   </div>
 </section>
